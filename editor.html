@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🐍 Python Editor</title>
+
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --border: #30363d;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    gap: .8rem;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .5rem;
+  }
+  header h1 { font-size: 1.6rem; margin: 0; }
+  header a { color: var(--accent); text-decoration: none; font-size: .9rem; }
+  header a:hover { text-decoration: underline; }
+
+  .toolbar { display: flex; gap: .5rem; align-items: center; }
+  .btn {
+    border: none; font-weight: 600; font-size: .9rem;
+    padding: .45rem 1rem; border-radius: 8px; cursor: pointer;
+  }
+  .run-btn { background: var(--accent); color: #06244d; }
+  .run-btn:disabled { opacity: .6; cursor: wait; }
+  .clear-btn { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+
+  /* Editor fills the available space; output sits below it. */
+  .editor-wrap {
+    flex: 1 1 auto;
+    min-height: 180px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .cm-editor { height: 100%; font-size: 1rem; }
+  .cm-editor.cm-focused { outline: none; }
+
+  .output {
+    flex: 0 0 auto;
+    max-height: 40vh; overflow: auto;
+    background: #000; color: #d1f7c4;
+    border-radius: 8px; padding: .7rem .9rem; min-height: 2.4rem;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .95rem; white-space: pre-wrap;
+    border: 1px solid var(--border);
+  }
+  .output .answer { color: #ffd866; font-weight: 600; }
+  .output .error { color: #ff9c8a; }
+
+  #status {
+    position: fixed; bottom: 10px; right: 12px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--muted); font-size: .8rem;
+    padding: .35rem .7rem; border-radius: 20px;
+  }
+
+  .hint { color: var(--muted); font-size: .82rem; margin: 0; }
+</style>
+</head>
+<body>
+
+  <header>
+    <h1>🐍 Python Editor</h1>
+    <a href="index.html">← Back to cheatsheet</a>
+  </header>
+
+  <div class="toolbar">
+    <button id="run" class="btn run-btn" disabled>▶ Run</button>
+    <button id="clear" class="btn clear-btn">🧹 Clear output</button>
+    <p class="hint">Tip: press <strong>Ctrl/Cmd + Enter</strong> to run.</p>
+  </div>
+
+  <div class="editor-wrap" id="editor"></div>
+  <div class="output" id="output">Write some Python above, then press ▶ Run.</div>
+
+  <div id="status">🐍 Loading Python…</div>
+
+<!-- CodeMirror 6 (locally bundled) + Pyodide.
+     assets/codemirror.min.js is a single esbuild bundle containing one copy
+     of @codemirror/state, so extensions never fail instanceof checks and it
+     works offline. Rebuild with: cd vendor && npm run build -->
+<script type="module">
+  const { EditorView, basicSetup, keymap, indentWithTab, Prec, python, oneDark, indentUnit } =
+    await import("./assets/codemirror.min.js");
+
+  const statusEl = document.getElementById("status");
+  const outEl = document.getElementById("output");
+  const runBtn = document.getElementById("run");
+  const clearBtn = document.getElementById("clear");
+
+  const starter =
+`# Welcome to the Python playground! 🐍
+# Try changing this, then press Run.
+
+name = input("What is your name? ")
+print("Hello,", name, "👋")
+
+for i in range(1, 4):
+    print(i, "x 7 =", i * 7)
+`;
+
+  const view = new EditorView({
+    doc: starter,
+    extensions: [
+      basicSetup,
+      python(),
+      oneDark,
+      indentUnit.of("    "),
+      // Prec.highest ensures Mod-Enter beats basicSetup's default Enter
+      // binding; otherwise Ctrl/Cmd-Enter just inserts a newline.
+      Prec.highest(keymap.of([
+        { key: "Mod-Enter", preventDefault: true, run: () => { runCode(); return true; } },
+      ])),
+      // Tab indents, Shift-Tab dedents (uses the 4-space indentUnit above).
+      keymap.of([indentWithTab]),
+    ],
+    parent: document.getElementById("editor"),
+  });
+
+  // Load Pyodide once.
+  const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
+  const pyodide = await loadPyodide();
+
+  // Make Python's input() use a browser pop-up (same as the cheatsheet).
+  globalThis.jsPrompt = (message) => {
+    const answer = window.prompt(message || "", "");
+    return answer === null ? "" : answer;
+  };
+  pyodide.runPython(`
+import builtins
+from js import jsPrompt
+
+def input(prompt=""):
+    print(prompt, end="")
+    answer = jsPrompt(prompt)
+    print("\x01" + answer + "\x02")  # markers so JS can colour the answer
+    return answer
+
+builtins.input = input
+`);
+
+  statusEl.textContent = "🐍 Python ready!";
+  setTimeout(() => (statusEl.style.display = "none"), 2000);
+  runBtn.disabled = false;
+
+  function escapeHtml(text) {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function renderOutput(text) {
+    return escapeHtml(text)
+      .replace(/\x01([\s\S]*?)\x02/g, '<span class="answer">$1</span>');
+  }
+
+  function runCode() {
+    const source = view.state.doc.toString();
+    runBtn.disabled = true;
+    try {
+      pyodide.globals.set("_source", source);
+      const errText = pyodide.runPython(`
+import sys, io, traceback
+sys.stdout = io.StringIO()
+sys.stderr = sys.stdout
+_err = ""
+try:
+    exec(_source, {"__name__": "__main__"})
+except SyntaxError:
+    _err = traceback.format_exc()
+except BaseException:
+    _err = "".join(traceback.format_exception(*sys.exc_info())[2:]) or traceback.format_exc()
+_out = sys.stdout.getvalue()
+_err
+`);
+      const result = pyodide.runPython("_out");
+      if (errText) {
+        const printed = result ? renderOutput(result) + "\n" : "";
+        outEl.innerHTML = printed + '<span class="error">' + escapeHtml(errText) + "</span>";
+      } else {
+        outEl.innerHTML = renderOutput(result || "(no output)");
+      }
+    } catch (e) {
+      outEl.innerHTML = '<span class="error">' + escapeHtml(String(e.message || e)) + "</span>";
+    } finally {
+      runBtn.disabled = false;
+    }
+  }
+
+  runBtn.addEventListener("click", runCode);
+  clearBtn.addEventListener("click", () => {
+    outEl.textContent = "Output cleared. Press ▶ Run to go again.";
+  });
+</script>
+</body>
+</html>

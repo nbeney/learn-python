@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🐍 Python Shell</title>
+
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --border: #30363d;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    gap: .8rem;
+  }
+
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: .5rem;
+  }
+  header h1 { font-size: 1.6rem; margin: 0; }
+  header a { color: var(--accent); text-decoration: none; font-size: .9rem; }
+  header a:hover { text-decoration: underline; }
+  .hint { color: var(--muted); font-size: .82rem; margin: 0; }
+
+  /* The terminal: a scrolling log + an input line, styled as one surface. */
+  #term {
+    flex: 1 1 auto;
+    min-height: 240px;
+    overflow: auto;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .8rem 1rem;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .95rem;
+    line-height: 1.5;
+    cursor: text;
+  }
+  #log { white-space: pre-wrap; margin: 0; }
+  #log .in     { color: #e6edf3; }           /* echoed user input */
+  #log .out    { color: #d1f7c4; }           /* program output */
+  #log .result { color: #9cdcfe; }           /* >>> expression results */
+  #log .error  { color: #ff9c8a; }           /* tracebacks */
+  #log .banner { color: var(--muted); }
+
+  /* Current input line: a prompt + a borderless input that looks like text. */
+  .line { display: flex; align-items: baseline; }
+  .prompt { color: #c586c0; white-space: pre; }
+  #cmd {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: #e6edf3; font-family: inherit; font-size: inherit; padding: 0;
+  }
+  #cmd:disabled { opacity: .5; }
+
+  #status {
+    position: fixed; bottom: 10px; right: 12px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--muted); font-size: .8rem;
+    padding: .35rem .7rem; border-radius: 20px;
+  }
+</style>
+</head>
+<body>
+
+  <header>
+    <h1>🐍 Python Shell</h1>
+    <a href="index.html">← Back to cheatsheet</a>
+  </header>
+  <p class="hint">Type Python and press <strong>Enter</strong>. Try <code>2 + 2</code>, then <code>name = "Ada"</code>, then <code>name</code>. ↑/↓ for history.</p>
+
+  <div id="term">
+    <pre id="log"><span class="banner">Loading Python… 🐍</span>
+</pre>
+    <div class="line">
+      <span class="prompt" id="prompt">&gt;&gt;&gt; </span>
+      <input id="cmd" autocomplete="off" autocapitalize="off" spellcheck="false" disabled />
+    </div>
+  </div>
+
+  <div id="status">🐍 Loading Python…</div>
+
+<script type="module">
+  const logEl = document.getElementById("log");
+  const cmdEl = document.getElementById("cmd");
+  const promptEl = document.getElementById("prompt");
+  const termEl = document.getElementById("term");
+  const statusEl = document.getElementById("status");
+
+  // Clicking anywhere in the terminal focuses the input, like a real shell.
+  termEl.addEventListener("mousedown", (e) => {
+    if (window.getSelection().toString() === "") {
+      // let text selection work, but focus input on a plain click
+      setTimeout(() => cmdEl.focus(), 0);
+    }
+  });
+
+  function append(text, cls) {
+    const span = document.createElement("span");
+    if (cls) span.className = cls;
+    span.textContent = text;
+    logEl.appendChild(span);
+    termEl.scrollTop = termEl.scrollHeight;
+  }
+
+  // ----- Load Pyodide and build a persistent interactive console -----
+  const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
+  const pyodide = await loadPyodide();
+
+  // input() -> browser pop-up, via the console's stdin callback.
+  function stdinCallback() {
+    const answer = window.prompt("input():", "");
+    return answer === null ? "" : answer + "\n";
+  }
+
+  // Create a PyodideConsole that streams stdout/stderr into our log.
+  const pyconsole = pyodide.runPython(`
+import sys
+from pyodide.console import PyodideConsole
+import __main__
+_console = PyodideConsole(__main__.__dict__)
+_console
+`);
+  pyconsole.stdout_callback = (s) => append(s, "out");
+  pyconsole.stderr_callback = (s) => append(s, "error");
+  pyconsole.stdin_callback = stdinCallback;
+
+  // Show the Python version banner, like IDLE.
+  const pyVersion = pyodide.runPython("import sys; sys.version.split()[0]");
+  logEl.innerHTML = "";
+  append(`Python ${pyVersion} (Pyodide) — a real interactive shell 🐍\n`, "banner");
+  append('Type "help(object)" for help on something.\n\n', "banner");
+
+  statusEl.textContent = "🐍 Python ready!";
+  setTimeout(() => (statusEl.style.display = "none"), 2000);
+  cmdEl.disabled = false;
+  cmdEl.focus();
+
+  // ----- REPL state: command history + continuation buffer -----
+  const history = [];
+  let histIndex = 0;
+  let awaiting = false; // true while a complete command is executing
+
+  async function submitLine(line) {
+    // Echo the typed line with its current prompt.
+    append(promptEl.textContent + line + "\n", "in");
+
+    const future = pyconsole.push(line);
+    const status = future.syntax_check;
+
+    if (status === "incomplete") {
+      // Need more lines: switch to the continuation prompt.
+      promptEl.textContent = "... ";
+      future.destroy?.();
+      return;
+    }
+
+    if (status === "syntax-error") {
+      append(future.formatted_error, "error");
+      future.destroy?.();
+      promptEl.textContent = ">>> ";
+      return;
+    }
+
+    // status === "complete": await execution, then show the repr of the result.
+    awaiting = true;
+    cmdEl.disabled = true;
+    try {
+      const result = await future;
+      // Like a real shell, show the repr of the result unless it is None.
+      // repr_shorten keeps huge values from flooding the screen.
+      if (result !== undefined && result !== null) {
+        const text = reprOf(result);
+        if (text !== "None") append(text + "\n", "result");
+      }
+      // Clean up a PyProxy result to avoid memory leaks.
+      if (result && typeof result.destroy === "function") result.destroy();
+    } catch (e) {
+      // The console streams the traceback via stderr; show formatted_error too.
+      if (future.formatted_error) append(future.formatted_error, "error");
+      else append(String(e.message || e) + "\n", "error");
+    } finally {
+      future.destroy?.();
+      awaiting = false;
+      cmdEl.disabled = false;
+      promptEl.textContent = ">>> ";
+      cmdEl.focus();
+    }
+  }
+
+  // Prebuild a Python helper that reprs + shortens any value.
+  const pyRepr = pyodide.runPython(`
+from pyodide.console import repr_shorten
+def _repr(v):
+    return repr_shorten(v)
+_repr
+`);
+
+  // Compute a shortened repr of a result (PyProxy or plain JS value).
+  function reprOf(value) {
+    try {
+      // pyRepr is a Python function; calling it with a PyProxy keeps the real
+      // Python object, giving an accurate repr (e.g. lists show as [1, 2, 3]).
+      return pyRepr(value);
+    } catch {
+      // Fallback for odd JS values.
+      return String(value);
+    }
+  }
+
+  cmdEl.addEventListener("keydown", (e) => {
+    // Ctrl/Cmd-L clears the screen, like a real terminal. Allowed even while
+    // a command is running, since it only affects the display.
+    if ((e.ctrlKey || e.metaKey) && (e.key === "l" || e.key === "L")) {
+      e.preventDefault();
+      logEl.innerHTML = "";
+      termEl.scrollTop = 0;
+      return;
+    }
+
+    if (awaiting) { e.preventDefault(); return; }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const line = cmdEl.value;
+      cmdEl.value = "";
+      if (line.trim() !== "") {
+        history.push(line);
+        histIndex = history.length;
+      }
+      submitLine(line);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (histIndex > 0) { histIndex--; cmdEl.value = history[histIndex]; }
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (histIndex < history.length - 1) { histIndex++; cmdEl.value = history[histIndex]; }
+      else { histIndex = history.length; cmdEl.value = ""; }
+    }
+  });
+</script>
+</body>
+</html>

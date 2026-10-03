@@ -105,6 +105,11 @@
   <header>
     <h1>🐍 Python Cheatsheet</h1>
     <p>Fun, editable, runnable. Change the code, then press ▶ Run!</p>
+    <p>
+      <a href="editor.html" style="color:var(--accent)">🎮 Open the Python editor →</a>
+      &nbsp;·&nbsp;
+      <a href="shell.html" style="color:var(--accent)">⌨️ Open the Python shell →</a>
+    </p>
   </header>
 
   <section>
@@ -184,17 +189,17 @@ print(7 ** 2)  # power'></div>
   <section>
     <h2>⚖️ comparisons — true or false?</h2>
     <p class="blurb">These questions answer <code>True</code> or <code>False</code>. They are what <code>if</code> uses to decide.</p>
-    <div class="example" data-code='print(5 == 5)   # equal to? ✅
-print(5 != 3)   # not equal to? ❎
-print(5 > 3)    # greater than? ⬆️
-print(5 < 3)    # less than? ⬇️
-print(5 >= 5)   # greater than or equal? 📈
-print(5 <= 4)   # less than or equal? 📉'></div>
+    <div class="example" data-code='print(5 == 5)  # equal to? ✅
+print(5 != 3)  # not equal to? ❎
+print(5 > 3)   # greater than? ⬆️
+print(5 < 3)   # less than? ⬇️
+print(5 >= 5)  # greater than or equal? 📈
+print(5 <= 4)  # less than or equal? 📉'></div>
 
     <p class="blurb" style="margin-top:1rem">You can compare words too. Python checks them letter by letter, like a dictionary.</p>
-    <div class="example" data-code='print("cat" == "cat")   # same word? ✅
-print("cat" == "Cat")   # capitals matter! ❎
-print("cat" != "dog")   # different words? ✅
+    <div class="example" data-code='print("cat" == "cat")      # same word? ✅
+print("cat" == "Cat")      # capitals matter! ❎
+print("cat" != "dog")      # different words? ✅
 print("apple" < "banana")  # apple comes first 🔤
 print("zebra" > "ant")     # zebra comes later 🔤'></div>
   </section>
@@ -222,25 +227,12 @@ else:
 
 <div id="status">🐍 Loading Python…</div>
 
-<!-- CodeMirror 6 + Pyodide, loaded as ES modules from a CDN.
-     We pin every package to the SAME @codemirror/state and
-     @codemirror/language via ?deps so esm.sh serves one shared copy.
-     This keeps the indentUnit facet identical across packages (so 4-space
-     indent works) without an import map that re-exports basicSetup. -->
+<!-- CodeMirror (locally bundled, assets/codemirror.min.js) + Pyodide. -->
 <script type="module">
-  // Let esm.sh resolve one consistent dependency tree: pin ONLY the shared
-  // singletons by name (no sub-versions). esm.sh then picks compatible
-  // view/language builds, avoiding cross-package version mismatches while
-  // still giving every package the SAME @codemirror/state & language
-  // (so the indentUnit facet matches and 4-space indent works).
-  const DEPS = "deps=@codemirror/state,@codemirror/language";
-  const [{ EditorView, basicSetup }, { python }, { oneDark }, { indentUnit }] =
-    await Promise.all([
-      import(`https://esm.sh/codemirror@6.0.1?${DEPS}`),
-      import(`https://esm.sh/@codemirror/lang-python@6.1.6?${DEPS}`),
-      import(`https://esm.sh/@codemirror/theme-one-dark@6.1.2?${DEPS}`),
-      import(`https://esm.sh/@codemirror/language@6.10.2?${DEPS}`),
-    ]);
+  // Locally bundled CodeMirror (one copy of @codemirror/state, works offline).
+  // Rebuild with: cd vendor && npm run build
+  const { EditorView, basicSetup, keymap, indentWithTab, Prec, python, oneDark, indentUnit } =
+    await import("./assets/codemirror.min.js");
 
   const statusEl = document.getElementById("status");
 
@@ -253,12 +245,6 @@ else:
     edWrap.className = "editor";
     host.appendChild(edWrap);
 
-    const view = new EditorView({
-      doc: code,
-      extensions: [basicSetup, python(), oneDark, indentUnit.of("    ")],
-      parent: edWrap,
-    });
-
     const toolbar = document.createElement("div");
     toolbar.className = "toolbar";
     const btn = document.createElement("button");
@@ -266,10 +252,27 @@ else:
     btn.textContent = "▶ Run";
     btn.disabled = true; // enabled once Python is ready
     toolbar.appendChild(btn);
-    host.appendChild(toolbar);
 
     const out = document.createElement("div");
     out.className = "output";
+
+    // Per-box run handler. Mod-Enter (below) and the button both call this.
+    const run = () => { if (!btn.disabled) runCode(view, out, btn); };
+
+    const view = new EditorView({
+      doc: code,
+      extensions: [
+        basicSetup, python(), oneDark, indentUnit.of("    "),
+        // Prec.highest so Mod-Enter beats basicSetup's default Enter binding.
+        Prec.highest(keymap.of([
+          { key: "Mod-Enter", preventDefault: true, run: () => { run(); return true; } },
+        ])),
+        keymap.of([indentWithTab]),
+      ],
+      parent: edWrap,
+    });
+
+    host.appendChild(toolbar);
     host.appendChild(out);
 
     editors.push({ view, btn, out });
