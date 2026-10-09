@@ -74,7 +74,9 @@
   }
   .run-btn { background: var(--accent); color: #fff; }
   .run-btn:disabled { opacity: .6; cursor: wait; }
-  .clear-btn { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+
+  /* Run button row, right-aligned directly under the editor. */
+  .run-row { display: flex; justify-content: flex-end; }
 
   /* File manager + samples controls in the toolbar. */
   .files { display: inline-flex; align-items: center; gap: .3rem; }
@@ -202,9 +204,6 @@
   </header>
 
   <div class="toolbar">
-    <button id="run" class="btn run-btn" disabled>▶ Run</button>
-    <button id="clear" class="btn clear-btn">🧹 Clear output</button>
-
     <!-- File manager: pick/create/rename/copy/delete local files. -->
     <span class="files">
       <label class="files-label" for="fileSelect">📁</label>
@@ -227,7 +226,13 @@
   </div>
 
   <div class="editor-wrap" id="editor"></div>
-  <div class="output" id="output">Write some Python above, then press ▶ Run.</div>
+
+  <!-- Run sits directly under the code block, right-aligned. -->
+  <div class="run-row">
+    <button id="run" class="btn run-btn" disabled>▶ Run</button>
+  </div>
+
+  <div class="output" id="output">The program output will show up here.</div>
 
   <div id="status">🐍 Loading Python…</div>
 
@@ -282,7 +287,6 @@
   const statusEl = document.getElementById("status");
   const outEl = document.getElementById("output");
   const runBtn = document.getElementById("run");
-  const clearBtn = document.getElementById("clear");
 
   const fileSelect = document.getElementById("fileSelect");
   const sampleSelect = document.getElementById("sampleSelect");
@@ -699,7 +703,6 @@ async def __run_user_code(source):
   }
 
   runBtn.addEventListener("click", runCode);
-  clearBtn.addEventListener("click", () => clearOutput("Output cleared. Press ▶ Run to go again."));
 </script>
 </body>
 </html>
