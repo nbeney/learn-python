@@ -81,10 +81,9 @@
     border-color: var(--accent);
     box-shadow: 0 10px 24px rgba(0,0,0,.18);
   }
-  .card .emoji { font-size: 2.6rem; line-height: 1; margin-bottom: .7rem; }
-  .card h2 { margin: 0 0 .3rem; font-size: 1.35rem; }
+  .card .emoji { font-size: 2.6rem; line-height: 1; }
+  .card h2 { margin: 0; font-size: 1.35rem; display: flex; align-items: center; gap: .6rem; }
   .card p { margin: 0; color: var(--muted); font-size: .95rem; }
-  .card .go { margin-top: 1rem; color: var(--accent); font-weight: 600; font-size: .95rem; }
 
   footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 2.5rem; }
 
@@ -162,24 +161,18 @@
 
   <div class="cards">
     <a class="card" href="cheatsheet.html">
-      <div class="emoji">📖</div>
-      <h2>Cheatsheet</h2>
+      <h2><span class="emoji">📖</span>Cheatsheet</h2>
       <p>The basics with lots of fun examples you can edit and run.</p>
-      <span class="go">Open →</span>
     </a>
 
     <a class="card" href="shell.html">
-      <div class="emoji">⌨️</div>
-      <h2>Shell</h2>
+      <h2><span class="emoji">⌨️</span>Shell</h2>
       <p>An interactive <code>&gt;&gt;&gt;</code> shell to try one line at a time.</p>
-      <span class="go">Open →</span>
     </a>
 
     <a class="card" href="editor.html">
-      <div class="emoji">📝</div>
-      <h2>Editor</h2>
+      <h2><span class="emoji">📝</span>Editor</h2>
       <p>A big editor to write and run your own Python programs.</p>
-      <span class="go">Open →</span>
     </a>
   </div>
 
