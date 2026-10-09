@@ -115,111 +115,137 @@
   <section>
     <h2>🖨️ print — say something</h2>
     <p class="blurb">Shows text on the screen.</p>
-    <div class="example" data-code='print("Hello, world! 👋")
-print("Coding is fun 🎉")'></div>
+    <div class="example" data-code='
+print("Hello, world! 👋")
+print("Coding is fun 🎉")
+    '></div>
   </section>
 
   <section>
     <h2>📦 variables — remember things</h2>
     <p class="blurb">A box with a name that holds a value.</p>
-    <div class="example" data-code='name = "Ada"
+    <div class="example" data-code='
+name = "Ada"
 age = 10
-print(name, "is", age, "years old 🎂")'></div>
+print(name, "is", age, "years old 🎂")
+    '></div>
   </section>
 
   <section>
     <h2>⌨️ input — ask a question</h2>
     <p class="blurb">A pop-up appears. Type your answer and press OK.</p>
-    <div class="example" data-code='color = input("What is your favourite colour? ")
-print("Cool! I like", color, "too 🌈")'></div>
+    <div class="example" data-code='
+color = input("What is your favourite colour? ")
+print("Cool! I like", color, "too 🌈")
+    '></div>
 
     <p class="blurb" style="margin-top:1rem">Input is always text. Use <code>int()</code> to turn it into a number you can do maths with.</p>
-    <div class="example" data-code='age = int(input("How old are you? "))
-print("Next year you will be", age + 1, "🎂")'></div>
+    <div class="example" data-code='
+age = int(input("How old are you? "))
+print("Next year you will be", age + 1, "🎂")
+    '></div>
   </section>
 
   <section>
     <h2>🔁 loops — do it again and again</h2>
     <p class="blurb">Repeat code without typing it lots of times.</p>
-    <div class="example" data-code='for star in range(4):
-    print(star, "⭐" * star)'></div>
+    <div class="example" data-code='
+for star in range(4):
+    print(star, "⭐" * star)
+    '></div>
   </section>
 
   <section>
     <h2>🔀 if — make a choice</h2>
     <p class="blurb">Do different things depending on the answer.</p>
-    <div class="example" data-code='score = int(input("What is your score? "))
+    <div class="example" data-code='
+score = int(input("What is your score? "))
 
 if score >= 10:
     print("You win! 🏆")
 elif score >= 5:
     print("Almost there! 💪")
 else:
-    print("Try again! 🔁")'></div>
+    print("Try again! 🔁")
+    '></div>
   </section>
 
   <section>
     <h2>🎲 random — surprise me!</h2>
     <p class="blurb">Pick a random whole number. Great for dice and games. Run it a few times!</p>
-    <div class="example" data-code='import random
+    <div class="example" data-code='
+import random
 
 dice = random.randint(1, 6)
-print("You rolled a", dice, "🎲")'></div>
+print("You rolled a", dice, "🎲")
+    '></div>
 
     <p class="blurb" style="margin-top:1rem">Pick a random item from a list.</p>
-    <div class="example" data-code='import random
+    <div class="example" data-code='
+import random
 
 fruits = ["🍎 apple", "🍌 banana", "🍇 grapes", "🍊 orange"]
 choice = random.choice(fruits)
-print("Today you get:", choice)'></div>
+print("Today you get:", choice)
+    '></div>
   </section>
 
   <section>
     <h2>🧮 maths — count and calculate</h2>
     <p class="blurb">Python is a great calculator.</p>
-    <div class="example" data-code='print(7 + 2)   # add
+    <div class="example" data-code='
+print(7 + 2)   # add
 print(7 - 2)   # subtract
 print(7 * 2)   # multiply
 print(7 / 2)   # divide
 print(7 // 2)  # quotient
 print(7 % 2)   # remainder
-print(7 ** 2)  # power'></div>
+print(7 ** 2)  # power
+    '></div>
   </section>
 
   <section>
     <h2>⚖️ comparisons — true or false?</h2>
     <p class="blurb">These questions answer <code>True</code> or <code>False</code>. They are what <code>if</code> uses to decide.</p>
-    <div class="example" data-code='print(5 == 5)  # equal to? ✅
+    <div class="example" data-code='
+print(5 == 5)  # equal to? ✅
 print(5 != 3)  # not equal to? ❎
 print(5 > 3)   # greater than? ⬆️
 print(5 < 3)   # less than? ⬇️
 print(5 >= 5)  # greater than or equal? 📈
-print(5 <= 4)  # less than or equal? 📉'></div>
+print(5 <= 4)  # less than or equal? 📉
+    '></div>
 
     <p class="blurb" style="margin-top:1rem">You can compare words too. Python checks them letter by letter, like a dictionary.</p>
-    <div class="example" data-code='print("cat" == "cat")      # same word? ✅
+    <div class="example" data-code='
+print("cat" == "cat")      # same word? ✅
 print("cat" == "Cat")      # capitals matter! ❎
 print("cat" != "dog")      # different words? ✅
 print("apple" < "banana")  # apple comes first 🔤
-print("zebra" > "ant")     # zebra comes later 🔤'></div>
+print("zebra" > "ant")     # zebra comes later 🔤
+    '></div>
   </section>
 
   <section>
     <h2>🔗 boolean expressions — combine questions</h2>
     <p class="blurb">Join <code>True</code>/<code>False</code> values with <code>and</code>, <code>or</code>, <code>not</code>.</p>
-    <div class="example" data-code='age = 10
+    <div class="example" data-code='
+age = 10
 
 print(age > 5 and age < 12)   # BOTH must be true 🤝
 print(age < 5 or age > 8)     # EITHER can be true 🙌
-print(not age == 7)           # flips true/false 🔄'></div>
+print(not age == 7)           # flips true/false 🔄
+    '></div>
 
     <p class="blurb" style="margin-top:1rem">They are handy inside <code>if</code>.</p>
-    <div class="example" data-code='age = int(input("How old are you? "))
+    <div class="example" data-code='
+age = int(input("How old are you? "))
 
 if age >= 8 and age <= 11:
     print("Welcome to Code Club! 🎉")
 else:
-    print("This club is for ages 8 to 11 🙂")'></div>
+    print("This club is for ages 8 to 11 🙂")
+    '></div>
   </section>
 
   <footer>© 2023-2027 Nicolas Beney. All rights reserved.</footer>
@@ -239,7 +265,10 @@ else:
   // Build an editor + Run button + output area for each .example box.
   const editors = [];
   document.querySelectorAll(".example").forEach((host) => {
-    const code = host.getAttribute("data-code") || "";
+    // Trim surrounding whitespace so data-code can be laid out on its own
+    // lines in the HTML (leading newline + trailing indentation) without
+    // showing a blank first line or breaking Python indentation.
+    const code = (host.getAttribute("data-code") || "").trim();
 
     const edWrap = document.createElement("div");
     edWrap.className = "editor";
