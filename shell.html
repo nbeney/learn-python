@@ -190,12 +190,6 @@
   const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
   const pyodide = await loadPyodide();
 
-  // input() -> browser pop-up, via the console's stdin callback.
-  function stdinCallback() {
-    const answer = window.prompt("input():", "");
-    return answer === null ? "" : answer + "\n";
-  }
-
   // Create a PyodideConsole that streams stdout/stderr into our log.
   const pyconsole = pyodide.runPython(`
 import sys
@@ -206,7 +200,27 @@ _console
 `);
   pyconsole.stdout_callback = (s) => append(s, "out");
   pyconsole.stderr_callback = (s) => append(s, "error");
-  pyconsole.stdin_callback = stdinCallback;
+
+  // input() -> browser pop-up. We override builtins.input (rather than using
+  // stdin_callback) because stdin_callback never receives the prompt text;
+  // Python writes the prompt to stdout then reads raw stdin. Overriding input
+  // lets us pass the real prompt (e.g. "Name?") to window.prompt.
+  globalThis.jsPrompt = (message) => {
+    const answer = window.prompt(message || "", "");
+    return answer === null ? "" : answer;
+  };
+  pyodide.runPython(`
+import builtins
+from js import jsPrompt
+
+def input(prompt=""):
+    print(prompt, end="")        # echo the prompt into the terminal
+    answer = jsPrompt(prompt)    # pop-up uses the real prompt text
+    print(answer)                # echo the typed answer, like a real shell
+    return answer
+
+builtins.input = input
+`);
 
   // Show the Python version banner, like IDLE.
   const pyVersion = pyodide.runPython("import sys; sys.version.split()[0]");
