@@ -273,9 +273,9 @@ builtins.input = input
       // Clean up a PyProxy result to avoid memory leaks.
       if (result && typeof result.destroy === "function") result.destroy();
     } catch (e) {
-      // The console streams the traceback via stderr; show formatted_error too.
-      if (future.formatted_error) append(future.formatted_error, "error");
-      else append(String(e.message || e) + "\n", "error");
+      // On a rejected future the traceback is in e.message (NOT stderr, and
+      // reading future.formatted_error here throws "already destroyed").
+      append(cleanTraceback(String(e.message || e)), "error");
     } finally {
       future.destroy?.();
       awaiting = false;
@@ -292,6 +292,26 @@ def _repr(v):
     return repr_shorten(v)
 _repr
 `);
+
+  // Trim the internal Pyodide/console frames from a traceback so students
+  // see just their own "<console>" line(s) and the final error message.
+  function cleanTraceback(tb) {
+    const lines = tb.split("\n");
+    const kept = ["Traceback (most recent call last):"];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Keep frames pointing at the user's console input...
+      if (line.includes('File "<console>"')) {
+        kept.push(line);
+        if (lines[i + 1] && lines[i + 1].startsWith("    ")) kept.push(lines[++i]);
+      }
+    }
+    // ...and always the final, non-empty error line (e.g. "NameError: ...").
+    const last = lines.filter((l) => l.trim() !== "").pop();
+    if (last && !kept.includes(last)) kept.push(last);
+    // If we somehow stripped everything useful, fall back to the raw traceback.
+    return (kept.length > 1 ? kept.join("\n") : tb.trim()) + "\n";
+  }
 
   // Compute a shortened repr of a result (PyProxy or plain JS value).
   function reprOf(value) {
