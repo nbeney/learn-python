@@ -131,7 +131,7 @@
       </div>
     </div>
   </header>
-  <p class="hint">Type Python and press <strong>Enter</strong>. Try <code>2 + 2</code>, then <code>name = "Ada"</code>, then <code>name</code>. ↑/↓ for history.</p>
+  <p class="hint">Type Python and press <strong>Enter</strong>. Try <code>2 + 2</code>, then <code>_ + 10</code> (<code>_</code> is the last result). ↑/↓ for history.</p>
 
   <div id="term">
     <pre id="log"><span class="banner">Loading Python… 🐍</span>
@@ -264,11 +264,14 @@ builtins.input = input
     cmdEl.disabled = true;
     try {
       const result = await future;
-      // Like a real shell, show the repr of the result unless it is None.
-      // repr_shorten keeps huge values from flooding the screen.
+      // Like a real shell, show the repr of the result unless it is None,
+      // and store it in `_` so the next line can reuse it (CPython behaviour).
       if (result !== undefined && result !== null) {
         const text = reprOf(result);
-        if (text !== "None") append(text + "\n", "result");
+        if (text !== "None") {
+          append(text + "\n", "result");
+          setLast(result);  // _ = result  (only for displayed, non-None values)
+        }
       }
       // Clean up a PyProxy result to avoid memory leaks.
       if (result && typeof result.destroy === "function") result.destroy();
@@ -311,6 +314,18 @@ _repr
     if (last && !kept.includes(last)) kept.push(last);
     // If we somehow stripped everything useful, fall back to the raw traceback.
     return (kept.length > 1 ? kept.join("\n") : tb.trim()) + "\n";
+  }
+
+  // Set the console's `_` to the last displayed value. The console's globals
+  // are __main__.__dict__, which is exactly pyodide.globals, so assigning here
+  // makes `_` available to the next line typed. For a PyProxy we store a copy
+  // because the original `result` proxy is destroyed right after display.
+  function setLast(value) {
+    if (value && typeof value.copy === "function") {
+      pyodide.globals.set("_", value.copy());
+    } else {
+      pyodide.globals.set("_", value);
+    }
   }
 
   // Compute a shortened repr of a result (PyProxy or plain JS value).
