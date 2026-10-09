@@ -60,9 +60,7 @@
     display: flex; align-items: baseline; justify-content: space-between;
     flex-wrap: wrap; gap: .5rem;
   }
-  header h1 { font-size: 1.6rem; margin: 0; }
-  header a { color: var(--accent); text-decoration: none; font-size: .9rem; }
-  header a:hover { text-decoration: underline; }
+  header h1 { font-size: 2.4rem; margin: 0; }
   .hint { color: var(--muted); font-size: .82rem; margin: 0; }
 
   /* The terminal: a scrolling log + an input line, styled as one surface. */
@@ -133,6 +131,10 @@
   .menu-sep { height: 1px; background: var(--border); margin: .4rem .2rem; }
   .menu-label { font-size: .75rem; color: var(--muted); padding: .2rem .6rem; }
 
+  /* The snake emoji in the title links home; keep it looking like plain text. */
+  .home-emoji { color: inherit; text-decoration: none; cursor: pointer; }
+  .home-emoji:hover { filter: brightness(1.15); }
+
   /* Theme switcher (Light / Dark / System), lives inside the menu. */
   .theme-switch {
     display: flex; gap: .15rem; padding: .2rem .4rem .3rem;
@@ -168,7 +170,7 @@
 </nav>
 
   <header>
-    <h1>🐍 Python Shell</h1>
+    <h1><a href="index.html" class="home-emoji" title="Home" aria-label="Home">🐍</a> Python Shell</h1>
   </header>
   <p class="hint">Type Python and press <strong>Enter</strong>. Try <code>2 + 2</code>, then <code>_ + 10</code> (<code>_</code> is the last result). ↑/↓ for history.</p>
 
