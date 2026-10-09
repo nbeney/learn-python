@@ -76,6 +76,25 @@
   .run-btn:disabled { opacity: .6; cursor: wait; }
   .clear-btn { background: var(--card); color: var(--text); border: 1px solid var(--border); }
 
+  /* File manager + samples controls in the toolbar. */
+  .files { display: inline-flex; align-items: center; gap: .3rem; }
+  .files-label { font-size: 1rem; line-height: 1; }
+  .select {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font: inherit; font-size: .9rem; padding: .4rem .5rem;
+    cursor: pointer; max-width: 11rem;
+  }
+  .select:hover { border-color: var(--accent); }
+  .icon-btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border);
+    padding: .4rem .55rem; font-size: .9rem; line-height: 1;
+  }
+  .icon-btn:hover { border-color: var(--accent); }
+  /* Let the hint wrap to a new line on narrow screens. */
+  .toolbar { flex-wrap: wrap; }
+
   /* ---------- Corner menu (navigation + theme) ---------- */
   /* Align the menu's right edge with the page content (body has 1rem padding). */
   .menu { position: fixed; top: 12px; right: 1rem; z-index: 50; }
@@ -185,7 +204,26 @@
   <div class="toolbar">
     <button id="run" class="btn run-btn" disabled>▶ Run</button>
     <button id="clear" class="btn clear-btn">🧹 Clear output</button>
-    <p class="hint">Tip: press <strong>Ctrl/Cmd + Enter</strong> to run.</p>
+
+    <!-- File manager: pick/create/rename/copy/delete local files. -->
+    <span class="files">
+      <label class="files-label" for="fileSelect">📁</label>
+      <select id="fileSelect" class="select" title="Your saved files"></select>
+      <button id="fileNew"    class="btn icon-btn" title="New file">➕</button>
+      <button id="fileCopy"   class="btn icon-btn" title="Make a copy">📄</button>
+      <button id="fileRename" class="btn icon-btn" title="Rename file">✏️</button>
+      <button id="fileDelete" class="btn icon-btn" title="Delete file">🗑️</button>
+    </span>
+
+    <!-- Samples: load an example program into the current file. -->
+    <span class="files">
+      <label class="files-label" for="sampleSelect">📚</label>
+      <select id="sampleSelect" class="select" title="Load a sample program">
+        <option value="">Samples…</option>
+      </select>
+    </span>
+
+    <p class="hint">Tip: press <strong>Ctrl/Cmd + Enter</strong> to run. Files save automatically.</p>
   </div>
 
   <div class="editor-wrap" id="editor"></div>
@@ -239,12 +277,22 @@
   const { EditorView, basicSetup, keymap, indentWithTab, Prec, python, oneDark, indentUnit } =
     await import("./assets/codemirror.min.js");
 
+  const { samples } = await import("./assets/samples.js");
+
   const statusEl = document.getElementById("status");
   const outEl = document.getElementById("output");
   const runBtn = document.getElementById("run");
   const clearBtn = document.getElementById("clear");
 
-  const starter =
+  const fileSelect = document.getElementById("fileSelect");
+  const sampleSelect = document.getElementById("sampleSelect");
+  const fileNewBtn = document.getElementById("fileNew");
+  const fileCopyBtn = document.getElementById("fileCopy");
+  const fileRenameBtn = document.getElementById("fileRename");
+  const fileDeleteBtn = document.getElementById("fileDelete");
+
+  const DEFAULT_NAME = "main.py";
+  const STARTER =
 `# Welcome to the Python playground! 🐍
 # Try changing this, then press Run.
 
@@ -255,8 +303,49 @@ for i in range(1, 4):
     print(i, "x 7 =", i * 7)
 `;
 
+  // ---------- Local file store (localStorage) ----------
+  // files: { "main.py": "code", ... }   current: "main.py"
+  const FILES_KEY = "editor:files";
+  const CURRENT_KEY = "editor:current";
+
+  function loadFiles() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(FILES_KEY));
+      if (raw && typeof raw === "object" && Object.keys(raw).length) return raw;
+    } catch (_) { /* fall through to defaults */ }
+    return { [DEFAULT_NAME]: STARTER };
+  }
+  function saveFiles(files) { localStorage.setItem(FILES_KEY, JSON.stringify(files)); }
+  function getCurrentName() {
+    const name = localStorage.getItem(CURRENT_KEY);
+    return name && files[name] !== undefined ? name : Object.keys(files)[0];
+  }
+  function setCurrentName(name) { current = name; localStorage.setItem(CURRENT_KEY, name); }
+
+  let files = loadFiles();
+  let current = getCurrentName();
+  saveFiles(files);          // persist defaults on first visit
+  setCurrentName(current);
+
+  // Normalise a user-entered name: trim, add .py if missing.
+  function normaliseName(input) {
+    let name = (input || "").trim();
+    if (!name) return "";
+    if (!/\.py$/i.test(name)) name += ".py";
+    return name;
+  }
+  // Suggest an unused name like "untitled.py", "untitled2.py", ...
+  function uniqueName(base) {
+    if (files[base] === undefined) return base;
+    const stem = base.replace(/\.py$/i, "");
+    let n = 2;
+    while (files[`${stem}${n}.py`] !== undefined) n++;
+    return `${stem}${n}.py`;
+  }
+
+  // ---------- Editor ----------
   const view = new EditorView({
-    doc: starter,
+    doc: files[current],
     extensions: [
       basicSetup,
       python(),
@@ -269,30 +358,270 @@ for i in range(1, 4):
       ])),
       // Tab indents, Shift-Tab dedents (uses the 4-space indentUnit above).
       keymap.of([indentWithTab]),
+      // Auto-save the current file as you type (debounced).
+      EditorView.updateListener.of((u) => { if (u.docChanged) scheduleSave(); }),
     ],
     parent: document.getElementById("editor"),
   });
+
+  // Replace the whole editor document (keeps undo history).
+  function setEditorText(text) {
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+  }
+
+  // Debounced save of the editor buffer into the current file.
+  let saveTimer = null;
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 300);
+  }
+  function saveNow() {
+    files[current] = view.state.doc.toString();
+    saveFiles(files);
+  }
+
+  // ---------- File dropdown + actions ----------
+  function refreshFileSelect() {
+    fileSelect.innerHTML = "";
+    Object.keys(files).sort((a, b) => a.localeCompare(b)).forEach((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (name === current) opt.selected = true;
+      fileSelect.appendChild(opt);
+    });
+  }
+
+  // Switch to another file, saving the current buffer first.
+  function openFile(name) {
+    if (files[name] === undefined) return;
+    saveNow();
+    setCurrentName(name);
+    setEditorText(files[name]);
+    refreshFileSelect();
+  }
+
+  function createFile(name, code) {
+    files[name] = code;
+    saveNow();            // make sure current buffer is kept before switching
+    saveFiles(files);
+    setCurrentName(name);
+    setEditorText(code);
+    refreshFileSelect();
+  }
+
+  fileSelect.addEventListener("change", () => openFile(fileSelect.value));
+
+  fileNewBtn.addEventListener("click", () => {
+    const input = prompt("New file name:", uniqueName("untitled.py"));
+    if (input === null) return;
+    const name = normaliseName(input);
+    if (!name) return;
+    if (files[name] !== undefined) {
+      if (!confirm(`"${name}" already exists. Open it instead?`)) return;
+      openFile(name);
+      return;
+    }
+    createFile(name, "# " + name + "\n\n");
+  });
+
+  fileCopyBtn.addEventListener("click", () => {
+    saveNow();
+    const suggested = uniqueName("copy-of-" + current);
+    const input = prompt(`Copy "${current}" to:`, suggested);
+    if (input === null) return;
+    const name = normaliseName(input);
+    if (!name) return;
+    if (files[name] !== undefined && !confirm(`"${name}" exists. Overwrite it?`)) return;
+    createFile(name, files[current]);
+  });
+
+  fileRenameBtn.addEventListener("click", () => {
+    const input = prompt(`Rename "${current}" to:`, current);
+    if (input === null) return;
+    const name = normaliseName(input);
+    if (!name || name === current) return;
+    if (files[name] !== undefined && !confirm(`"${name}" exists. Overwrite it?`)) return;
+    saveNow();
+    files[name] = files[current];
+    delete files[current];
+    saveFiles(files);
+    setCurrentName(name);
+    refreshFileSelect();
+  });
+
+  fileDeleteBtn.addEventListener("click", () => {
+    if (!confirm(`Delete "${current}"? This cannot be undone.`)) return;
+    delete files[current];
+    // Never leave zero files: recreate the default if needed.
+    if (Object.keys(files).length === 0) files[DEFAULT_NAME] = STARTER;
+    saveFiles(files);
+    const next = Object.keys(files).sort((a, b) => a.localeCompare(b))[0];
+    setCurrentName(next);
+    setEditorText(files[next]);
+    refreshFileSelect();
+  });
+
+  // ---------- Samples dropdown ----------
+  samples.forEach((s, i) => {
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = s.name;
+    sampleSelect.appendChild(opt);
+  });
+  sampleSelect.addEventListener("change", () => {
+    const idx = sampleSelect.value;
+    sampleSelect.value = "";                 // reset so the same item can be re-picked
+    if (idx === "") return;
+    const sample = samples[Number(idx)];
+    if (!sample) return;
+    const hasContent = view.state.doc.toString().trim() !== "";
+    // Offer to load into a new file so the current work is not lost.
+    if (hasContent && confirm(`Load "${sample.name}" into a NEW file?\n\nOK = new file, Cancel = replace current file.`)) {
+      createFile(uniqueName(normaliseName(sample.name.replace(/[^\w]+/g, "-")) || "sample.py"), sample.code);
+    } else {
+      setEditorText(sample.code);
+      saveNow();
+    }
+  });
+
+  refreshFileSelect();
 
   // Load Pyodide once.
   const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
   const pyodide = await loadPyodide();
 
-  // Make Python's input() use a browser pop-up (same as the cheatsheet).
-  globalThis.jsPrompt = (message) => {
-    const answer = window.prompt(message || "", "");
-    return answer === null ? "" : answer;
+  // Stream Python output to the panel as it is produced, and make input()
+  // pop up a browser dialog. Output is written chunk-by-chunk (not buffered
+  // until the program ends), so loops that print between input() prompts
+  // show their text immediately — e.g. guess-the-number.
+
+  // jsWrite(text, isErr): called by Python on every stdout/stderr write.
+  globalThis.jsWrite = (text, isErr) => {
+    wroteSinceTick = true;          // ensure the next tick paints this output
+    appendOutput(text, isErr ? "error" : null);
   };
+
+  // jsPrompt(message): flush pending paint, then show the dialog and echo
+  // the typed answer (wrapped in markers so it can be coloured).
+  globalThis.jsPrompt = (message) => {
+    // Force the browser to lay out (and in practice paint) the output written
+    // so far before we open the blocking modal dialog. Without this, prints
+    // that happen right before input() would not be visible until the program
+    // ends. Reading offsetHeight triggers a synchronous reflow.
+    outEl.scrollTop = outEl.scrollHeight;
+    void outEl.offsetHeight;
+    const answer = window.prompt(message || "", "");
+    const typed = answer === null ? "" : answer;
+    // Echo the typed answer (coloured) then a newline, like pressing Enter in
+    // a real shell. Without the newline, the program's next print() would run
+    // straight on from the answer on the same line.
+    appendOutput("\x01" + typed + "\x02\n", null);
+    return typed;
+  };
+
+  // jsTick(): called by Python between statements. To keep tight compute
+  // loops fast, we only actually yield a frame to the browser when output
+  // was produced since the last yield, or ~50ms has elapsed. Otherwise we
+  // return a resolved promise immediately. This gives incremental painting
+  // for I/O-heavy programs without crawling on big number-crunching loops.
+  let lastTick = 0;
+  let wroteSinceTick = false;
+  globalThis.jsTick = () => {
+    const now = performance.now();
+    if (wroteSinceTick || now - lastTick > 50) {
+      wroteSinceTick = false;
+      lastTick = now;
+      return nextFrame();           // real paint
+    }
+    return Promise.resolve();       // cheap: no yield this time
+  };
+
   pyodide.runPython(`
-import builtins
-from js import jsPrompt
+import builtins, sys, ast, asyncio, traceback
+from js import jsWrite, jsPrompt, jsTick
+
+class _JsOut:
+    def __init__(self, is_err): self._is_err = is_err
+    def write(self, s):
+        if s: jsWrite(s, self._is_err)
+        return len(s)
+    def flush(self): pass
+
+sys.stdout = _JsOut(False)
+sys.stderr = _JsOut(True)
 
 def input(prompt=""):
-    print(prompt, end="")
-    answer = jsPrompt(prompt)
-    print("\x01" + answer + "\x02")  # markers so JS can colour the answer
-    return answer
+    if prompt:
+        print(prompt, end="")   # streamed to the panel before the dialog
+    return jsPrompt(prompt)
 
 builtins.input = input
+
+async def __tick():
+    # Yield to the browser so queued output paints.
+    await jsTick()
+
+# --- Automatic "await __tick()" insertion ---------------------------------
+# We parse the student's code and insert a tick before each statement in the
+# module body and at the start of every loop iteration. This lets output
+# appear incrementally without the student needing to write async code.
+class _Ticker(ast.NodeTransformer):
+    def _tick_stmt(self):
+        call = ast.Expr(ast.Await(ast.Call(
+            func=ast.Name(id="__tick", ctx=ast.Load()), args=[], keywords=[])))
+        return call
+
+    def _instrument(self, body):
+        out = []
+        for stmt in body:
+            out.append(self._tick_stmt())
+            out.append(self.visit(stmt))
+        return out
+
+    def visit_For(self, node):
+        node.body = self._instrument(node.body)
+        node.orelse = [self.visit(n) for n in node.orelse]
+        return node
+
+    def visit_While(self, node):
+        node.body = self._instrument(node.body)
+        node.orelse = [self.visit(n) for n in node.orelse]
+        return node
+
+def __make_async(source):
+    tree = ast.parse(source)
+    ticker = _Ticker()
+    new_body = []
+    for stmt in tree.body:
+        new_body.append(ticker._tick_stmt())
+        new_body.append(ticker.visit(stmt))
+    # Wrap everything in: async def __main(): <body>
+    func = ast.AsyncFunctionDef(
+        name="__main",
+        args=ast.arguments(posonlyargs=[], args=[], vararg=None,
+                           kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+        body=new_body or [ast.Pass()],
+        decorator_list=[], returns=None, type_comment=None,
+    )
+    module = ast.Module(body=[func], type_ignores=[])
+    ast.fix_missing_locations(module)
+    return module
+
+async def __run_user_code(source):
+    g = {"__name__": "__main__", "__tick": __tick}
+    try:
+        module = __make_async(source)
+        code = compile(module, "<program>", "exec")
+        exec(code, g)
+        await g["__main"]()
+    except SyntaxError:
+        sys.stderr.write(traceback.format_exc())
+    except BaseException:
+        # Trim internal frames so the traceback points at the student's code.
+        tb = traceback.format_exception(*sys.exc_info())
+        cleaned = [line for line in tb if "__main" not in line and "__run_user_code" not in line]
+        sys.stderr.write("".join(cleaned) or "".join(tb))
 `);
 
   statusEl.textContent = "🐍 Python ready!";
@@ -306,48 +635,71 @@ builtins.input = input
       .replace(/>/g, "&gt;");
   }
 
-  function renderOutput(text) {
-    return escapeHtml(text)
-      .replace(/\x01([\s\S]*?)\x02/g, '<span class="answer">$1</span>');
+  // ---------- Streaming output ----------
+  // We append spans as text arrives. The typed-answer markers (\x01..\x02)
+  // may be split across writes, so we track whether we are currently inside
+  // an "answer" region and style accordingly.
+  let inAnswer = false;
+
+  function clearOutput(message) {
+    outEl.textContent = message || "";
+    inAnswer = false;
   }
 
-  function runCode() {
+  // Append a chunk, turning \x01..\x02 regions into coloured "answer" spans.
+  function appendOutput(text, cls) {
+    let i = 0;
+    while (i < text.length) {
+      if (inAnswer) {
+        const end = text.indexOf("\x02", i);
+        const slice = end === -1 ? text.slice(i) : text.slice(i, end);
+        if (slice) addSpan(slice, "answer");
+        if (end === -1) { i = text.length; } else { inAnswer = false; i = end + 1; }
+      } else {
+        const start = text.indexOf("\x01", i);
+        const slice = start === -1 ? text.slice(i) : text.slice(i, start);
+        if (slice) addSpan(slice, cls);
+        if (start === -1) { i = text.length; } else { inAnswer = true; i = start + 1; }
+      }
+    }
+    outEl.scrollTop = outEl.scrollHeight;
+  }
+
+  function addSpan(text, cls) {
+    const span = document.createElement("span");
+    if (cls) span.className = cls;
+    span.textContent = text;
+    outEl.appendChild(span);
+  }
+
+  // Give the browser a chance to paint queued output before we block on a
+  // modal input() dialog or long work.
+  function nextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  async function runCode() {
     const source = view.state.doc.toString();
     runBtn.disabled = true;
+    clearOutput("");                 // (1) clear previous output on every run
+    await nextFrame();               // let the clear paint before we start
+    const run = pyodide.globals.get("__run_user_code");
     try {
-      pyodide.globals.set("_source", source);
-      const errText = pyodide.runPython(`
-import sys, io, traceback
-sys.stdout = io.StringIO()
-sys.stderr = sys.stdout
-_err = ""
-try:
-    exec(_source, {"__name__": "__main__"})
-except SyntaxError:
-    _err = traceback.format_exc()
-except BaseException:
-    _err = "".join(traceback.format_exception(*sys.exc_info())[2:]) or traceback.format_exc()
-_out = sys.stdout.getvalue()
-_err
-`);
-      const result = pyodide.runPython("_out");
-      if (errText) {
-        const printed = result ? renderOutput(result) + "\n" : "";
-        outEl.innerHTML = printed + '<span class="error">' + escapeHtml(errText) + "</span>";
-      } else {
-        outEl.innerHTML = renderOutput(result || "(no output)");
-      }
+      // Run the student's code through the async runner, which inserts
+      // `await __tick()` between statements so output paints incrementally.
+      await run(source);
+      if (!outEl.textContent) clearOutput("(no output)");
     } catch (e) {
-      outEl.innerHTML = '<span class="error">' + escapeHtml(String(e.message || e)) + "</span>";
+      // Only reached for errors outside the Python try/except above.
+      appendOutput(String(e && e.message || e), "error");
     } finally {
+      run.destroy();
       runBtn.disabled = false;
     }
   }
 
   runBtn.addEventListener("click", runCode);
-  clearBtn.addEventListener("click", () => {
-    outEl.textContent = "Output cleared. Press ▶ Run to go again.";
-  });
+  clearBtn.addEventListener("click", () => clearOutput("Output cleared. Press ▶ Run to go again."));
 </script>
 </body>
 </html>
