@@ -330,6 +330,8 @@
 `# Welcome to the Python playground! 🐍
 # Press Run to run this program. Then try changing it or type your own program.
 
+import time
+
 def safe_input_int(prompt: str) -> int:
     # Keep asking until the person types a whole number.
     while True:
@@ -346,7 +348,7 @@ color = input("What is your favourite color? ")
 # Now let's say something cheerful back! 🎉
 print()
 print("✨" * 20)
-print(f"🎉 Hello, {name}! So great to meet you! 👋")
+print(f"🎉 Hello, {name}! Nice to meet you! 👋")
 print(f"🎂 Wow, {age} years old — that is awesome!")
 print(f"🍽️ {food.title()}? Yum, great choice! 😋")
 print(f"🌈 And {color.lower()} is a beautiful colour! 🎨")
@@ -356,6 +358,7 @@ print()
 # A little countdown, just for fun. 🚀
 for i in range(3, 0, -1):
     print(i, "...")
+    time.sleep(1)
 print(f"🚀 Have an amazing day, {name}! 💖")
 `;
 
