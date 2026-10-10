@@ -780,6 +780,7 @@ async def __run_user_code(source):
     } finally {
       run.destroy();
       runBtn.disabled = false;
+      view.focus();          // return focus to the editor when the run ends
     }
   }
 
