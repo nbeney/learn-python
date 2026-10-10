@@ -279,16 +279,31 @@ class _InputAwaiter(ast.NodeTransformer):
 
 class _ShellConsole(PyodideConsole):
     def runsource(self, source, filename="<console>"):
-        # Only transform when the source parses as a complete block. If it is
-        # incomplete (a continuation line) parsing fails, so we pass the
-        # original source through and let the base class report "incomplete".
+        # Fast path: code that never mentions input() is passed straight to the
+        # base console, so normal multi-line blocks keep their exact behaviour
+        # (continuation prompts, blank-line termination, etc.).
+        if "input" not in source:
+            return super().runsource(source, filename)
+
+        # The source uses input(). We must only transform once the block is
+        # COMPLETE; otherwise we would interfere with the console's "incomplete"
+        # detection (which needs the untouched source + its trailing newline).
+        # self._compile returns None for incomplete input, a code object when
+        # complete, and raises SyntaxError for genuine errors.
+        try:
+            maybe = self._compile(source, filename, "single")
+        except (OverflowError, SyntaxError, ValueError):
+            # Let the base produce the proper syntax-error future.
+            return super().runsource(source, filename)
+        if maybe is None:
+            # Incomplete: show the continuation prompt, unchanged.
+            return super().runsource(source, filename)
+
+        # Complete block containing input(): rewrite input(...) -> await input(...).
         try:
             tree = ast.parse(source)
-        except SyntaxError:
-            return super().runsource(source, filename)
-        tree = _InputAwaiter().visit(tree)
-        ast.fix_missing_locations(tree)
-        try:
+            tree = _InputAwaiter().visit(tree)
+            ast.fix_missing_locations(tree)
             new_source = ast.unparse(tree)
         except Exception:
             new_source = source
