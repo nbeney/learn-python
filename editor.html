@@ -149,10 +149,30 @@
   .theme-switch button:hover { color: var(--text); }
   .theme-switch button[aria-pressed="true"]:hover { color: #fff; }
 
-  /* Editor fills the available space; output sits below it. */
-  .editor-wrap {
+  /* Workspace holds the code pane and the output. Stacked (column) by
+     default; switches to side-by-side (row) on wider screens via the media
+     query below. It grows to fill the remaining body height. */
+  .workspace {
+    flex: 1 1 auto;
+    min-height: 0;              /* allow children to shrink/scroll */
+    display: flex;
+    flex-direction: column;
+    gap: .8rem;
+  }
+
+  /* The code pane stacks the editor and the Run button row. */
+  .code-pane {
     flex: 1 1 auto;
     min-height: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: .8rem;
+  }
+
+  /* Editor fills the code pane. */
+  .editor-wrap {
+    flex: 1 1 auto;
+    min-height: 140px;
     border-radius: 10px;
     overflow: hidden;
     border: 1px solid var(--border);
@@ -161,6 +181,7 @@
   .cm-editor.cm-focused { outline: none; }
 
   .output {
+    /* Stacked mode: a capped box below the editor. */
     flex: 0 0 auto;
     max-height: 40vh; overflow: auto;
     background: #000; color: #d1f7c4;
@@ -168,6 +189,19 @@
     font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
     font-size: .95rem; white-space: pre-wrap;
     border: 1px solid var(--border);
+  }
+
+  /* Side-by-side layout on wider screens: code on the left, output on the
+     right, each taking half the width and the full workspace height. */
+  @media (min-width: 820px) {
+    .workspace { flex-direction: row; align-items: stretch; }
+    .code-pane { flex: 1 1 50%; min-width: 0; }
+    .output {
+      flex: 1 1 50%;
+      min-width: 0;
+      max-height: none;         /* fill the column height instead of capping */
+      align-self: stretch;
+    }
   }
   .output .answer { color: #ffd866; font-weight: 600; }
   .output .error { color: #ff9c8a; }
@@ -238,14 +272,19 @@
     </span>
   </div>
 
-  <div class="editor-wrap" id="editor"></div>
+  <!-- Workspace: code (editor + Run) and output. Side-by-side when wide,
+       stacked top/bottom when narrow. -->
+  <div class="workspace">
+    <div class="code-pane">
+      <div class="editor-wrap" id="editor"></div>
+      <!-- Run sits directly under the code block, left-aligned. -->
+      <div class="run-row">
+        <button id="run" class="btn run-btn" disabled>▶ Run</button>
+      </div>
+    </div>
 
-  <!-- Run sits directly under the code block, right-aligned. -->
-  <div class="run-row">
-    <button id="run" class="btn run-btn" disabled>▶ Run</button>
+    <div class="output" id="output">The program output will show up here.</div>
   </div>
-
-  <div class="output" id="output">The program output will show up here.</div>
 
   <div id="status">🐍 Loading Python…</div>
 
@@ -358,7 +397,7 @@ print()
 # A little countdown, just for fun. 🚀
 for i in range(3, 0, -1):
     print(i, "...")
-    time.sleep(1)
+    time.sleep(i / 2)
 print(f"🚀 Have an amazing day, {name}! 💖")
 `;
 
