@@ -172,6 +172,16 @@
   .output .answer { color: #ffd866; font-weight: 600; }
   .output .error { color: #ff9c8a; }
 
+  /* Inline input() field: looks like typing straight into the output. */
+  .output .inline-input {
+    background: transparent; border: none; outline: none;
+    color: #ffd866; font-weight: 600;
+    font-family: inherit; font-size: inherit;
+    padding: 0; margin: 0; min-width: 4ch;
+    caret-color: #ffd866;
+  }
+  .output.awaiting-input { cursor: text; }
+
   #status {
     position: fixed; bottom: 10px; right: 12px;
     background: var(--card); border: 1px solid var(--border);
@@ -526,23 +536,51 @@ for i in range(1, 4):
     appendOutput(text, isErr ? "error" : null);
   };
 
-  // jsPrompt(message): flush pending paint, then show the dialog and echo
-  // the typed answer (wrapped in markers so it can be coloured).
-  globalThis.jsPrompt = (message) => {
-    // Force the browser to lay out (and in practice paint) the output written
-    // so far before we open the blocking modal dialog. Without this, prints
-    // that happen right before input() would not be visible until the program
-    // ends. Reading offsetHeight triggers a synchronous reflow.
+  // jsReadLine(): called by Python's input(). Instead of a pop-up dialog, we
+  // place an inline text field right where the cursor is in the output box,
+  // focus it, and resolve the Promise when the user presses Enter. The typed
+  // text is then echoed (coloured) followed by a newline, like a real shell.
+  let activeInput = null;
+  globalThis.jsReadLine = () => new Promise((resolve) => {
+    const field = document.createElement("input");
+    field.type = "text";
+    field.className = "inline-input";
+    field.autocomplete = "off";
+    field.autocapitalize = "off";
+    field.spellcheck = false;
+    field.setAttribute("aria-label", "Program input");
+
+    // Grow the field to roughly fit what is typed, so it feels inline.
+    const resize = () => { field.style.width = Math.max(4, field.value.length + 1) + "ch"; };
+    field.addEventListener("input", resize);
+
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const typed = field.value;
+        field.remove();
+        activeInput = null;
+        outEl.classList.remove("awaiting-input");
+        // Echo the answer (coloured) + newline into the normal output stream.
+        appendOutput("\x01" + typed + "\x02\n", null);
+        resolve(typed);
+      }
+    });
+
+    outEl.appendChild(field);
+    outEl.classList.add("awaiting-input");
+    activeInput = field;
+    resize();
     outEl.scrollTop = outEl.scrollHeight;
-    void outEl.offsetHeight;
-    const answer = window.prompt(message || "", "");
-    const typed = answer === null ? "" : answer;
-    // Echo the typed answer (coloured) then a newline, like pressing Enter in
-    // a real shell. Without the newline, the program's next print() would run
-    // straight on from the answer on the same line.
-    appendOutput("\x01" + typed + "\x02\n", null);
-    return typed;
-  };
+    field.focus();
+  });
+
+  // Clicking anywhere in the output focuses the active input, like a shell.
+  outEl.addEventListener("mousedown", () => {
+    if (activeInput && window.getSelection().toString() === "") {
+      setTimeout(() => activeInput && activeInput.focus(), 0);
+    }
+  });
 
   // jsTick(): called by Python between statements. To keep tight compute
   // loops fast, we only actually yield a frame to the browser when output
@@ -563,7 +601,7 @@ for i in range(1, 4):
 
   pyodide.runPython(`
 import builtins, sys, ast, asyncio, traceback
-from js import jsWrite, jsPrompt, jsTick
+from js import jsWrite, jsReadLine, jsTick
 
 class _JsOut:
     def __init__(self, is_err): self._is_err = is_err
@@ -575,10 +613,13 @@ class _JsOut:
 sys.stdout = _JsOut(False)
 sys.stderr = _JsOut(True)
 
-def input(prompt=""):
+# input() is async now: it prints the prompt, then waits for the user to type
+# into the inline field in the output box. The AST transform below rewrites
+# plain input(...) calls into "await input(...)" so students write normal code.
+async def input(prompt=""):
     if prompt:
-        print(prompt, end="")   # streamed to the panel before the dialog
-    return jsPrompt(prompt)
+        print(prompt, end="")   # streamed to the panel before the field
+    return await jsReadLine()
 
 builtins.input = input
 
@@ -611,6 +652,24 @@ class _Ticker(ast.NodeTransformer):
     def visit_While(self, node):
         node.body = self._instrument(node.body)
         node.orelse = [self.visit(n) for n in node.orelse]
+        return node
+
+    # input() is async, so rewrite "input(...)" into "await input(...)".
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id == "input":
+            return ast.Await(value=node)
+        return node
+
+    # Avoid double-wrapping if the user already wrote "await input(...)".
+    def visit_Await(self, node):
+        inner = node.value
+        if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
+                and inner.func.id == "input"):
+            inner.args = [self.visit(a) for a in inner.args]
+            inner.keywords = [self.visit(k) for k in inner.keywords]
+            return node
+        self.generic_visit(node)
         return node
 
 def __make_async(source):
@@ -666,7 +725,9 @@ async def __run_user_code(source):
   let inAnswer = false;
 
   function clearOutput(message) {
-    outEl.textContent = message || "";
+    outEl.textContent = message || "";   // also removes any pending input field
+    outEl.classList.remove("awaiting-input");
+    activeInput = null;
     inAnswer = false;
   }
 
