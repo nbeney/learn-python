@@ -75,8 +75,11 @@
   .run-btn { background: var(--accent); color: #fff; }
   .run-btn:disabled { opacity: .6; cursor: wait; }
 
-  /* Run button row, right-aligned directly under the editor. */
-  .run-row { display: flex; justify-content: flex-end; }
+  /* Run button row, left-aligned directly under the editor. */
+  .run-row { display: flex; justify-content: flex-start; }
+
+  /* The file toolbar is hidden by default; the menu toggles it on. */
+  body:not(.toolbar-visible) .toolbar { display: none; }
 
   /* File manager + samples controls in the toolbar. */
   .files { display: inline-flex; align-items: center; gap: .3rem; }
@@ -190,6 +193,8 @@
     <a href="shell.html" role="menuitem">⌨️ Shell</a>
     <a href="editor.html" role="menuitem" aria-current="page">📝 Editor</a>
     <div class="menu-sep"></div>
+    <a href="#" id="toolbarToggle" role="menuitemcheckbox" aria-checked="false">⬜ Toolbar</a>
+    <div class="menu-sep"></div>
     <div class="menu-label">Theme</div>
     <div class="theme-switch" role="group" aria-label="Colour theme">
       <button data-theme-value="light"  title="Light">☀️</button>
@@ -221,8 +226,6 @@
         <option value="">Samples…</option>
       </select>
     </span>
-
-    <p class="hint">Tip: press <strong>Ctrl/Cmd + Enter</strong> to run. Files save automatically.</p>
   </div>
 
   <div class="editor-wrap" id="editor"></div>
@@ -269,6 +272,23 @@
       });
       document.addEventListener("keydown", function (e) {
         if (e.key === "Escape") setOpen(false);
+      });
+    }
+
+    // File toolbar visibility: hidden by default, toggled from the menu and
+    // remembered across visits.
+    var toolbarToggle = document.getElementById("toolbarToggle");
+    if (toolbarToggle) {
+      function applyToolbar(visible) {
+        document.body.classList.toggle("toolbar-visible", visible);
+        toolbarToggle.setAttribute("aria-checked", String(visible));
+        toolbarToggle.textContent = (visible ? "✅" : "⬜") + " Toolbar";
+        localStorage.setItem("editor:toolbar", visible ? "1" : "0");
+      }
+      applyToolbar(localStorage.getItem("editor:toolbar") === "1"); // default hidden
+      toolbarToggle.addEventListener("click", function (e) {
+        e.preventDefault();
+        applyToolbar(!document.body.classList.contains("toolbar-visible"));
       });
     }
   })();
