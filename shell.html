@@ -230,12 +230,14 @@
   const termEl = document.getElementById("term");
   const statusEl = document.getElementById("status");
 
-  // Clicking anywhere in the terminal focuses the input, like a real shell.
-  termEl.addEventListener("mousedown", (e) => {
-    if (window.getSelection().toString() === "") {
-      // let text selection work, but focus input on a plain click
-      setTimeout(() => cmdEl.focus(), 0);
-    }
+  // Clicking in the terminal focuses the input, like a real shell — but we
+  // must NOT steal focus when the user is selecting text to copy. We decide on
+  // "click" (fires after mouseup), by which point any drag-selection exists,
+  // and we skip focusing if there is a non-empty selection.
+  termEl.addEventListener("click", (e) => {
+    if (window.getSelection().toString() !== "") return;  // user selected text
+    if (e.target === cmdEl) return;                        // already the input
+    cmdEl.focus();
   });
 
   function append(text, cls) {
