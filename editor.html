@@ -189,6 +189,7 @@
     font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
     font-size: .95rem; white-space: pre-wrap;
     border: 1px solid var(--border);
+    display: flex; flex-direction: column;   /* canvas can grow to fill */
   }
 
   /* Side-by-side layout on wider screens: code on the left, output on the
@@ -215,6 +216,26 @@
     caret-color: #ffd866;
   }
   .output.awaiting-input { cursor: text; }
+
+  /* Turtle drawing surface. Hidden until a program uses the turtle module. */
+  .turtle-wrap { display: none; margin-bottom: .6rem; min-height: 0; }
+  .turtle-wrap.show { display: flex; }
+  #turtleCanvas {
+    display: block;
+    /* Fill the whole output area (rectangular, matching its aspect ratio). */
+    width: 100%; height: 100%;
+    background: #fff; border-radius: 8px; border: 1px solid var(--border);
+  }
+  /* When turtle is active, let the canvas take all available output height. */
+  .turtle-wrap.show { flex: 1 1 auto; min-height: 0; }
+
+  /* In stacked (narrow) mode the output has no fixed height, so give it a
+     usable drawing area when a turtle program is running. In side-by-side
+     mode the output already stretches to the code pane height. */
+  .output.has-turtle { max-height: none; }
+  @media (max-width: 819px) {
+    .output.has-turtle { height: 60vh; }
+  }
 
   #status {
     position: fixed; bottom: 10px; right: 12px;
@@ -283,7 +304,7 @@
       </div>
     </div>
 
-    <div class="output" id="output">The program output will show up here.</div>
+    <div class="output" id="output"><div class="turtle-wrap" id="turtleWrap"><canvas id="turtleCanvas" width="400" height="400"></canvas></div><span id="outText"></span>The program output will show up here.</span></div>
   </div>
 
   <div id="status">🐍 Loading Python…</div>
@@ -355,6 +376,9 @@
 
   const statusEl = document.getElementById("status");
   const outEl = document.getElementById("output");
+  const outTextEl = document.getElementById("outText");   // text output (keeps canvas intact)
+  const turtleWrap = document.getElementById("turtleWrap");
+  const turtleCanvas = document.getElementById("turtleCanvas");
   const runBtn = document.getElementById("run");
 
   const fileSelect = document.getElementById("fileSelect");
@@ -631,7 +655,7 @@ print(f"🚀 Have an amazing day, {name}! 💖")
       }
     });
 
-    outEl.appendChild(field);
+    outTextEl.appendChild(field);
     outEl.classList.add("awaiting-input");
     activeInput = field;
     resize();
@@ -662,6 +686,106 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     }
     return Promise.resolve();       // cheap: no yield this time
   };
+
+  // ---------- Turtle graphics bridge ----------
+  // Defined BEFORE the Python turtle module is registered, so that module's
+  // "from js import jsTurtle*" succeeds. The Python side keeps the turtle
+  // state and converts turtle coordinates (origin at centre, y up) into
+  // canvas pixels, then calls these functions to draw. We only paint pixels.
+  const tctx = turtleCanvas.getContext("2d");
+
+  // Size the canvas backing store to its displayed RECTANGLE times the device
+  // pixel ratio, so lines are crisp (not stretched) on any pane size / HiDPI.
+  // We report the canvas's logical size (CSS pixels) to Python so it can place
+  // the origin at the centre and use a uniform scale.
+  function turtleResize() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = turtleCanvas.getBoundingClientRect();
+    const cssW = Math.max(1, Math.round(rect.width));
+    const cssH = Math.max(1, Math.round(rect.height));
+    const devW = Math.round(cssW * dpr);
+    const devH = Math.round(cssH * dpr);
+    if (turtleCanvas.width !== devW || turtleCanvas.height !== devH) {
+      turtleCanvas.width = devW;
+      turtleCanvas.height = devH;
+    }
+    // Map CSS pixels -> device pixels, so Python can draw in CSS-pixel space.
+    tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Tell Python the drawing area size (in CSS pixels).
+    if (globalThis.jsTurtleSetSize) {} // (Python pulls size via jsTurtleSize)
+    turtleSizeW = cssW;
+    turtleSizeH = cssH;
+  }
+
+  let turtleSizeW = 400, turtleSizeH = 400;
+  // Python calls this to learn the current drawing size (CSS pixels).
+  globalThis.jsTurtleSize = () => [turtleSizeW, turtleSizeH];
+
+  function turtleFillBg(color) {
+    tctx.save();
+    tctx.setTransform(1, 0, 0, 1, 0, 0);          // fill in raw device pixels
+    tctx.fillStyle = color || "#ffffff";
+    tctx.fillRect(0, 0, turtleCanvas.width, turtleCanvas.height);
+    tctx.restore();
+  }
+
+  function turtleReset() {
+    turtleWrap.classList.remove("show");
+    outEl.classList.remove("has-turtle");
+    turtleResize();          // (re)establish crisp backing store + transform
+    turtleFillBg("#ffffff");
+  }
+
+  // Reveal the canvas the first time a program draws, then size its backing
+  // store to the now-visible displayed size so lines are crisp (not stretched).
+  globalThis.jsTurtleShow = () => {
+    const wasHidden = !turtleWrap.classList.contains("show");
+    turtleWrap.classList.add("show");
+    outEl.classList.add("has-turtle");
+    if (wasHidden) {
+      turtleResize();        // canvas is now laid out; match real pixels
+      turtleFillBg("#ffffff");
+    }
+  };
+
+  // Fill the whole background with a colour (bgcolor()).
+  globalThis.jsTurtleBg = (color) => { turtleFillBg(color); };
+
+  // Erase all drawings (clear()/reset()).
+  globalThis.jsTurtleClear = () => { turtleFillBg("#ffffff"); };
+
+  // Draw a line in canvas pixel coordinates.
+  globalThis.jsTurtleLine = (x1, y1, x2, y2, color, width) => {
+    tctx.strokeStyle = color || "#000000";
+    tctx.lineWidth = width || 1;
+    tctx.lineCap = "round";
+    tctx.beginPath();
+    tctx.moveTo(x1, y1);
+    tctx.lineTo(x2, y2);
+    tctx.stroke();
+  };
+
+  // Draw a filled dot centred at a canvas pixel coordinate.
+  globalThis.jsTurtleDot = (x, y, size, color) => {
+    tctx.fillStyle = color || "#000000";
+    tctx.beginPath();
+    tctx.arc(x, y, Math.max(1, size) / 2, 0, Math.PI * 2);
+    tctx.fill();
+  };
+
+  // Fill a polygon given a flat [x1,y1,x2,y2,...] array of canvas pixels
+  // (used by begin_fill()/end_fill()).
+  globalThis.jsTurtleFill = (coords, color) => {
+    if (!coords || coords.length < 6) return;
+    tctx.fillStyle = color || "#000000";
+    tctx.beginPath();
+    tctx.moveTo(coords[0], coords[1]);
+    for (let i = 2; i < coords.length; i += 2) tctx.lineTo(coords[i], coords[i + 1]);
+    tctx.closePath();
+    tctx.fill();
+  };
+
+  turtleReset();   // start hidden + blank
 
   pyodide.runPython(`
 import builtins, sys, ast, asyncio, traceback
@@ -829,6 +953,229 @@ async def __run_user_code(source):
         sys.stderr.write("".join(cleaned) or "".join(tb))
 `);
 
+  // ---------- A canvas-backed `turtle` module ----------
+  // Implements Movement, Pen, Appearance/Screen and State-query commands.
+  // Drawing is delegated to the JS bridge (jsTurtleLine/Dot/Fill/Bg/Clear).
+  // Turtle coordinates use the classic system: (0,0) at the centre, y pointing
+  // up, angles counter-clockwise. We convert to canvas pixels here.
+  pyodide.runPython(`
+import sys, math, types
+from js import (jsTurtleShow, jsTurtleBg, jsTurtleClear,
+                jsTurtleLine, jsTurtleDot, jsTurtleFill, jsTurtleSize)
+
+# The drawing area is rectangular and matches the output pane. We read its
+# size (CSS pixels) each time the turtle starts, place the origin at the
+# centre, and use 1 unit = 1 pixel (so forward(100) draws a 100px line),
+# just like classic turtle — the extra space simply gives more room.
+def _size():
+    s = jsTurtleSize()
+    return (float(s[0]), float(s[1]))
+
+# Named colours that students use most; anything else is passed through as-is
+# (CSS accepts names like "red", "skyblue" and "#ff8800").
+def _coltostr(c):
+    if isinstance(c, (tuple, list)) and len(c) == 3:
+        r, g, b = c
+        # turtle allows 0..1 floats or 0..255 ints; detect floats.
+        if all(isinstance(v, float) and 0 <= v <= 1 for v in c):
+            r, g, b = (int(round(v * 255)) for v in c)
+        return "rgb(%d,%d,%d)" % (int(r), int(g), int(b))
+    return str(c)
+
+_W, _H = 400.0, 400.0              # drawing area size, refreshed on turtle start
+
+def _to_canvas(x, y):
+    # turtle (0,0) centre, y up  ->  canvas top-left origin, y down
+    return (_W / 2 + x, _H / 2 - y)
+
+class Turtle:
+    def __init__(self):
+        self._x = 0.0
+        self._y = 0.0
+        self._heading = 0.0        # degrees, 0 = east, CCW positive
+        self._down = True
+        self._pencolor = "#000000"
+        self._fillcolor = "#000000"
+        self._width = 1.0
+        self._visible = True
+        self._speed = 6
+        self._filling = False
+        self._fillpts = []
+        jsTurtleShow()            # reveal + size the canvas, then read its size
+        global _W, _H
+        _W, _H = _size()
+
+    # --- internal ---
+    def _goto(self, x, y):
+        if self._down:
+            x1, y1 = _to_canvas(self._x, self._y)
+            x2, y2 = _to_canvas(x, y)
+            jsTurtleLine(x1, y1, x2, y2, self._pencolor, self._width)
+        self._x, self._y = float(x), float(y)
+        if self._filling:
+            cx, cy = _to_canvas(self._x, self._y)
+            self._fillpts.extend([cx, cy])
+
+    # --- Movement ---
+    def forward(self, d):
+        a = math.radians(self._heading)
+        self._goto(self._x + d * math.cos(a), self._y + d * math.sin(a))
+    def backward(self, d):
+        self.forward(-d)
+    def right(self, a):
+        self._heading = (self._heading - a) % 360
+    def left(self, a):
+        self._heading = (self._heading + a) % 360
+    def goto(self, x, y=None):
+        if y is None:
+            x, y = x
+        self._goto(x, y)
+    def setx(self, x): self._goto(x, self._y)
+    def sety(self, y): self._goto(self._x, y)
+    def setheading(self, a): self._heading = a % 360
+    def home(self):
+        self._goto(0, 0)
+        self._heading = 0.0
+    def circle(self, r, extent=360, steps=None):
+        # Approximate the arc with short line segments, like real turtle.
+        if steps is None:
+            steps = max(12, int(abs(extent) / 5))
+        step_len = 2 * math.pi * abs(r) * (extent / 360.0) / steps
+        turn = float(extent) / steps
+        sign = 1 if r >= 0 else -1
+        for _ in range(steps):
+            self.forward(step_len)
+            self.left(turn * sign)
+    def dot(self, size=None, color=None):
+        size = size or max(self._width + 4, 2 * self._width)
+        col = _coltostr(color) if color is not None else self._pencolor
+        cx, cy = _to_canvas(self._x, self._y)
+        jsTurtleDot(cx, cy, size, col)
+    def speed(self, s=None):
+        if s is None:
+            return self._speed
+        self._speed = s           # accepted for compatibility (drawing is instant)
+
+    # aliases
+    fd = forward; bk = backward; back = backward
+    rt = right; lt = left
+    setpos = goto; setposition = goto
+    seth = setheading
+
+    # --- Pen ---
+    def penup(self): self._down = False
+    def pendown(self): self._down = True
+    def pensize(self, w=None):
+        if w is None:
+            return self._width
+        self._width = w
+    def pencolor(self, *c):
+        if not c:
+            return self._pencolor
+        self._pencolor = _coltostr(c[0] if len(c) == 1 else c)
+    def fillcolor(self, *c):
+        if not c:
+            return self._fillcolor
+        self._fillcolor = _coltostr(c[0] if len(c) == 1 else c)
+    def color(self, *args):
+        if not args:
+            return (self._pencolor, self._fillcolor)
+        if len(args) == 1:
+            self._pencolor = self._fillcolor = _coltostr(args[0])
+        else:
+            self._pencolor = _coltostr(args[0])
+            self._fillcolor = _coltostr(args[1])
+    def begin_fill(self):
+        self._filling = True
+        cx, cy = _to_canvas(self._x, self._y)
+        self._fillpts = [cx, cy]
+    def end_fill(self):
+        if self._filling and len(self._fillpts) >= 6:
+            jsTurtleFill(self._fillpts, self._fillcolor)
+        self._filling = False
+        self._fillpts = []
+
+    # aliases
+    pu = penup; up = penup
+    pd = pendown; down = pendown
+    width = pensize
+
+    # --- Appearance / screen ---
+    def hideturtle(self): self._visible = False
+    def showturtle(self): self._visible = True
+    def isvisible(self): return self._visible
+    def bgcolor(self, *c):
+        if not c:
+            return "#ffffff"
+        jsTurtleBg(_coltostr(c[0] if len(c) == 1 else c))
+    def clear(self):
+        jsTurtleClear()
+    def reset(self):
+        jsTurtleClear()
+        self.__init__()
+    def shape(self, name=None): pass          # icon not drawn in this shim
+    def title(self, *a): pass
+    ht = hideturtle; st = showturtle
+
+    # --- State queries ---
+    def position(self): return (self._x, self._y)
+    pos = position
+    def xcor(self): return self._x
+    def ycor(self): return self._y
+    def heading(self): return self._heading
+    def isdown(self): return self._down
+    def towards(self, x, y=None):
+        if y is None:
+            x, y = x
+        return math.degrees(math.atan2(y - self._y, x - self._x)) % 360
+    def distance(self, x, y=None):
+        if y is None:
+            x, y = x
+        return math.hypot(x - self._x, y - self._y)
+
+# A default turtle, with module-level functions bound to it (classic API).
+_default = None
+def _get_default():
+    global _default
+    if _default is None:
+        _default = Turtle()
+    return _default
+
+def Screen():
+    # Minimal screen object: enough for bgcolor()/clear()/reset().
+    scr = types.SimpleNamespace()
+    t = _get_default()
+    scr.bgcolor = t.bgcolor
+    scr.clear = t.clear
+    scr.reset = t.reset
+    scr.title = t.title
+    return scr
+
+# Build the module and expose Turtle, Screen, and the module-level functions.
+_mod = types.ModuleType("turtle")
+_mod.Turtle = Turtle
+_mod.Screen = Screen
+_mod.done = lambda *a, **k: None
+_mod.mainloop = lambda *a, **k: None
+_mod.exitonclick = lambda *a, **k: None
+
+# Expose every public Turtle method as a module-level function that uses the
+# default turtle, matching how "from turtle import *" works in CPython.
+import inspect as _inspect
+def _make_fn(name):
+    def fn(*args, **kwargs):
+        return getattr(_get_default(), name)(*args, **kwargs)
+    fn.__name__ = name
+    return fn
+for _name, _member in list(vars(Turtle).items()):
+    if _name.startswith("_"):
+        continue
+    if callable(_member):
+        setattr(_mod, _name, _make_fn(_name))
+
+sys.modules["turtle"] = _mod
+`);
+
   statusEl.textContent = "🐍 Python ready!";
   setTimeout(() => (statusEl.style.display = "none"), 2000);
   runBtn.disabled = false;
@@ -847,10 +1194,11 @@ async def __run_user_code(source):
   let inAnswer = false;
 
   function clearOutput(message) {
-    outEl.textContent = message || "";   // also removes any pending input field
+    outTextEl.textContent = message || "";   // clear text, keep the canvas node
     outEl.classList.remove("awaiting-input");
     activeInput = null;
     inAnswer = false;
+    turtleReset();                           // hide + wipe the turtle canvas
   }
 
   // Append a chunk, turning \x01..\x02 regions into coloured "answer" spans.
@@ -876,7 +1224,7 @@ async def __run_user_code(source):
     const span = document.createElement("span");
     if (cls) span.className = cls;
     span.textContent = text;
-    outEl.appendChild(span);
+    outTextEl.appendChild(span);
   }
 
   // Give the browser a chance to paint queued output before we block on a
@@ -895,7 +1243,9 @@ async def __run_user_code(source):
       // Run the student's code through the async runner, which inserts
       // `await __tick()` between statements so output paints incrementally.
       await run(source);
-      if (!outEl.textContent) clearOutput("(no output)");
+      if (!outTextEl.textContent && !turtleWrap.classList.contains("show")) {
+        clearOutput("(no output)");
+      }
     } catch (e) {
       // Only reached for errors outside the Python try/except above.
       appendOutput(String(e && e.message || e), "error");
