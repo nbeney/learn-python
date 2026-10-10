@@ -97,6 +97,16 @@
   .output .answer { color: #ffd866; font-weight: 600; }  /* the typed answer */
   .output .error { color: #ff9c8a; }                     /* only the traceback */
 
+  /* Inline input() field: looks like typing straight into the output. */
+  .output .inline-input {
+    background: transparent; border: none; outline: none;
+    color: #ffd866; font-weight: 600;
+    font-family: inherit; font-size: inherit;
+    padding: 0; margin: 0; min-width: 4ch;
+    caret-color: #ffd866;
+  }
+  .output.awaiting-input { cursor: text; }
+
   .tip {
     border-left: 4px solid var(--accent);
     background: rgba(88,166,255,.08);
@@ -455,85 +465,202 @@ else:
   const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
   const pyodide = await loadPyodide();
 
-  // Make Python's input() use a browser pop-up.
-  // We expose a JS prompt to Python, then override the builtin input().
-  globalThis.jsPrompt = (message) => {
-    const answer = window.prompt(message || "", "");
-    return answer === null ? "" : answer;
-  };
-  pyodide.runPython(`
-import builtins
-from js import jsPrompt
+  // ---------- Streaming output + inline input() ----------
+  // Output streams into the currently running snippet's output box as it is
+  // produced, and input() reads from an inline field in that same box (no
+  // pop-up). `currentOut` points at the active snippet's output element.
+  let currentOut = null;
+  let inAnswer = false;        // tracking \x01..\x02 answer regions across chunks
+  let activeInput = null;      // the live inline <input>, if any
+  let lastTick = 0, wroteSinceTick = false;
 
-def input(prompt=""):
-    # Show the prompt, open the pop-up, then echo the typed answer.
-    # The answer is wrapped in markers so JS can color it differently.
-    print(prompt, end="")
-    answer = jsPrompt(prompt)
-    print("\x01" + answer + "\x02")  # markers around the user's answer
-    return answer
+  // jsWrite: stream a chunk of stdout/stderr into the current output box.
+  globalThis.jsWrite = (text, isErr) => {
+    wroteSinceTick = true;
+    appendOutput(text, isErr ? "error" : null);
+  };
+
+  // jsReadLine: show an inline input field in the current output box and
+  // resolve with the typed text when the user presses Enter.
+  globalThis.jsReadLine = () => new Promise((resolve) => {
+    const out = currentOut;
+    const field = document.createElement("input");
+    field.type = "text";
+    field.className = "inline-input";
+    field.autocomplete = "off"; field.autocapitalize = "off"; field.spellcheck = false;
+    field.setAttribute("aria-label", "Program input");
+    const resize = () => { field.style.width = Math.max(4, field.value.length + 1) + "ch"; };
+    field.addEventListener("input", resize);
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const typed = field.value;
+        field.remove();
+        activeInput = null;
+        out.classList.remove("awaiting-input");
+        appendOutput("\x01" + typed + "\x02\n", null);  // echo answer + newline
+        resolve(typed);
+      }
+    });
+    out.appendChild(field);
+    out.classList.add("awaiting-input");
+    activeInput = field;
+    resize();
+    field.focus();
+  });
+
+  // jsTick: let the browser paint between statements (throttled) so output
+  // appears incrementally without crawling on tight compute loops.
+  globalThis.jsTick = () => {
+    const now = performance.now();
+    if (wroteSinceTick || now - lastTick > 50) {
+      wroteSinceTick = false; lastTick = now;
+      return new Promise((r) => requestAnimationFrame(() => r()));
+    }
+    return Promise.resolve();
+  };
+
+  pyodide.runPython(`
+import builtins, sys, ast, traceback
+from js import jsWrite, jsReadLine, jsTick
+
+class _JsOut:
+    def __init__(self, is_err): self._is_err = is_err
+    def write(self, s):
+        if s: jsWrite(s, self._is_err)
+        return len(s)
+    def flush(self): pass
+
+sys.stdout = _JsOut(False)
+sys.stderr = _JsOut(True)
+
+# input() is async: it prints the prompt then waits for the inline field.
+# The AST transform below rewrites input(...) into "await input(...)".
+async def input(prompt=""):
+    if prompt:
+        print(prompt, end="")
+    return await jsReadLine()
 
 builtins.input = input
+
+async def __tick():
+    await jsTick()
+
+class _Ticker(ast.NodeTransformer):
+    def _tick_stmt(self):
+        return ast.Expr(ast.Await(ast.Call(
+            func=ast.Name(id="__tick", ctx=ast.Load()), args=[], keywords=[])))
+    def _instrument(self, body):
+        out = []
+        for stmt in body:
+            out.append(self._tick_stmt())
+            out.append(self.visit(stmt))
+        return out
+    def visit_For(self, node):
+        node.body = self._instrument(node.body)
+        node.orelse = [self.visit(n) for n in node.orelse]
+        return node
+    def visit_While(self, node):
+        node.body = self._instrument(node.body)
+        node.orelse = [self.visit(n) for n in node.orelse]
+        return node
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id == "input":
+            return ast.Await(value=node)
+        return node
+    def visit_Await(self, node):
+        inner = node.value
+        if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
+                and inner.func.id == "input"):
+            inner.args = [self.visit(a) for a in inner.args]
+            inner.keywords = [self.visit(k) for k in inner.keywords]
+            return node
+        self.generic_visit(node)
+        return node
+
+def __make_async(source):
+    tree = ast.parse(source)
+    ticker = _Ticker()
+    new_body = []
+    for stmt in tree.body:
+        new_body.append(ticker._tick_stmt())
+        new_body.append(ticker.visit(stmt))
+    func = ast.AsyncFunctionDef(
+        name="__main",
+        args=ast.arguments(posonlyargs=[], args=[], vararg=None,
+                           kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+        body=new_body or [ast.Pass()],
+        decorator_list=[], returns=None, type_comment=None,
+    )
+    module = ast.Module(body=[func], type_ignores=[])
+    ast.fix_missing_locations(module)
+    return module
+
+async def __run_user_code(source):
+    g = {"__name__": "__main__", "__tick": __tick}
+    try:
+        module = __make_async(source)
+        code = compile(module, "<program>", "exec")
+        exec(code, g)
+        await g["__main"]()
+    except SyntaxError:
+        sys.stderr.write(traceback.format_exc())
+    except BaseException:
+        tb = traceback.format_exception(*sys.exc_info())
+        cleaned = [l for l in tb if "__main" not in l and "__run_user_code" not in l]
+        sys.stderr.write("".join(cleaned) or "".join(tb))
 `);
 
   statusEl.textContent = "🐍 Python ready!";
   setTimeout(() => (statusEl.style.display = "none"), 2000);
 
-  function escapeHtml(text) {
-    return text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+  // Append a chunk to the current output box, turning \x01..\x02 regions into
+  // coloured "answer" spans. Handles markers split across chunks.
+  function appendOutput(text, cls) {
+    const out = currentOut;
+    if (!out) return;
+    let i = 0;
+    while (i < text.length) {
+      if (inAnswer) {
+        const end = text.indexOf("\x02", i);
+        const slice = end === -1 ? text.slice(i) : text.slice(i, end);
+        if (slice) addSpan(out, slice, "answer");
+        if (end === -1) { i = text.length; } else { inAnswer = false; i = end + 1; }
+      } else {
+        const start = text.indexOf("\x01", i);
+        const slice = start === -1 ? text.slice(i) : text.slice(i, start);
+        if (slice) addSpan(out, slice, cls);
+        if (start === -1) { i = text.length; } else { inAnswer = true; i = start + 1; }
+      }
+    }
   }
 
-  // Escape HTML, then turn \x01..\x02 markers into a colored "answer" span.
-  function renderOutput(text) {
-    return escapeHtml(text)
-      .replace(/\x01([\s\S]*?)\x02/g, '<span class="answer">$1</span>');
+  function addSpan(out, text, cls) {
+    const span = document.createElement("span");
+    if (cls) span.className = cls;
+    span.textContent = text;
+    out.appendChild(span);
   }
 
-  function runCode(view, out, btn) {
+  async function runCode(view, out, btn) {
     const source = view.state.doc.toString();
-    out.className = "output show";
+    // Reset and target this snippet's output box.
+    currentOut = out;
+    inAnswer = false; activeInput = null;
+    out.className = "output show";   // visible, no stale awaiting-input state
     out.textContent = "";
     btn.disabled = true;
+    const run = pyodide.globals.get("__run_user_code");
     try {
-      // Hand the source to Python as a variable (no quoting/injection issues),
-      // then exec it there. We catch the exception IN Python and format the
-      // full traceback, so the student sees the real error message and line,
-      // not just "PythonError".
-      pyodide.globals.set("_source", source);
-      const errText = pyodide.runPython(`
-import sys, io, traceback
-sys.stdout = io.StringIO()
-sys.stderr = sys.stdout
-_err = ""
-try:
-    exec(_source, {"__name__": "__main__"})
-except SyntaxError:
-    # Syntax errors format nicely without the internal exec frames.
-    _err = traceback.format_exc()
-except BaseException:
-    # Hide our own exec() frame so the traceback points at the student's code.
-    _err = "".join(traceback.format_exception(*sys.exc_info())[2:]) or traceback.format_exc()
-_out = sys.stdout.getvalue()
-_err  # value returned to JS
-`);
-      const result = pyodide.runPython("_out");
-      out.className = "output show";
-      if (errText) {
-        // Normal output keeps its colour; only the traceback is red.
-        const printed = result ? renderOutput(result) + "\n" : "";
-        out.innerHTML = printed + '<span class="error">' + escapeHtml(errText) + "</span>";
-      } else {
-        out.innerHTML = renderOutput(result || "(no output)");
-      }
+      await run(source);
+      if (!out.textContent) out.textContent = "(no output)";
     } catch (e) {
-      // Fallback: something went wrong outside the Python try/except.
-      out.className = "output show";
-      out.innerHTML = '<span class="error">' + escapeHtml(String(e.message || e)) + "</span>";
+      addSpan(out, String(e && e.message || e), "error");
     } finally {
+      run.destroy();
       btn.disabled = false;
+      currentOut = null;
     }
   }
 
