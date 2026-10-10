@@ -328,13 +328,35 @@
   const DEFAULT_NAME = "main.py";
   const STARTER =
 `# Welcome to the Python playground! 🐍
-# Try changing this, then press Run.
+# Press Run to run this program. Then try changing it or type your own program.
+
+def safe_input_int(prompt: str) -> int:
+    # Keep asking until the person types a whole number.
+    while True:
+        answer = input(prompt)
+        if answer.strip().lstrip("-").isdigit():
+            return int(answer)
+        print("🤔 That is not a whole number. Please try again!")
 
 name = input("What is your name? ")
-print("Hello,", name, "👋")
+age = safe_input_int("What is your age? ")
+food = input("What is your favourite food? ")
+color = input("What is your favourite color? ")
 
-for i in range(1, 4):
-    print(i, "x 7 =", i * 7)
+# Now let's say something cheerful back! 🎉
+print()
+print("✨" * 20)
+print(f"🎉 Hello, {name}! So great to meet you! 👋")
+print(f"🎂 Wow, {age} years old — that is awesome!")
+print(f"🍽️ {food.title()}? Yum, great choice! 😋")
+print(f"🌈 And {color.lower()} is a beautiful colour! 🎨")
+print("✨" * 20)
+print()
+
+# A little countdown, just for fun. 🚀
+for i in range(3, 0, -1):
+    print(i, "...")
+print(f"🚀 Have an amazing day, {name}! 💖")
 `;
 
   // ---------- Local file store (localStorage) ----------
@@ -627,15 +649,60 @@ async def __tick():
     # Yield to the browser so queued output paints.
     await jsTick()
 
-# --- Automatic "await __tick()" insertion ---------------------------------
-# We parse the student's code and insert a tick before each statement in the
-# module body and at the start of every loop iteration. This lets output
-# appear incrementally without the student needing to write async code.
-class _Ticker(ast.NodeTransformer):
+# --- Make input() work anywhere, with incremental output ------------------
+# Because our async input() must be awaited, any function that uses input()
+# (directly, or by calling another such function) has to become "async def",
+# and calls to those functions must be awaited too. We work out which
+# functions are "async" with a simple fixpoint, then transform the tree:
+#   * def -> async def           for async functions
+#   * input(...)   -> await input(...)
+#   * asyncfunc(...) -> await asyncfunc(...)
+#   * insert "await __tick()"     in the module body and loop bodies
+# so that output appears incrementally without the student writing async code.
+
+def __collect_async_funcs(tree):
+    # Map each top-level-ish function name to the set of function names it
+    # calls, and note which call input() directly.
+    calls = {}        # name -> set of called Name ids
+    uses_input = set()
+
+    class _Scan(ast.NodeVisitor):
+        def __init__(self): self.stack = []
+        def _visit_func(self, node):
+            self.stack.append(node.name)
+            calls.setdefault(node.name, set())
+            self.generic_visit(node)
+            self.stack.pop()
+        visit_FunctionDef = _visit_func
+        visit_AsyncFunctionDef = _visit_func
+        def visit_Call(self, node):
+            if self.stack and isinstance(node.func, ast.Name):
+                calls[self.stack[-1]].add(node.func.id)
+                if node.func.id == "input":
+                    uses_input.add(self.stack[-1])
+            self.generic_visit(node)
+
+    _Scan().visit(tree)
+
+    async_funcs = set(uses_input)
+    changed = True
+    while changed:
+        changed = False
+        for fn, callees in calls.items():
+            if fn in async_funcs:
+                continue
+            if "input" in callees or (callees & async_funcs):
+                async_funcs.add(fn)
+                changed = True
+    return async_funcs
+
+class _AsyncRewriter(ast.NodeTransformer):
+    def __init__(self, async_funcs):
+        self.async_funcs = async_funcs
+
     def _tick_stmt(self):
-        call = ast.Expr(ast.Await(ast.Call(
+        return ast.Expr(ast.Await(ast.Call(
             func=ast.Name(id="__tick", ctx=ast.Load()), args=[], keywords=[])))
-        return call
 
     def _instrument(self, body):
         out = []
@@ -654,18 +721,30 @@ class _Ticker(ast.NodeTransformer):
         node.orelse = [self.visit(n) for n in node.orelse]
         return node
 
-    # input() is async, so rewrite "input(...)" into "await input(...)".
+    def visit_FunctionDef(self, node):
+        self.generic_visit(node)
+        if node.name in self.async_funcs:
+            # Turn "def f(...)" into "async def f(...)".
+            new = ast.AsyncFunctionDef(
+                name=node.name, args=node.args, body=node.body,
+                decorator_list=node.decorator_list, returns=node.returns,
+                type_comment=getattr(node, "type_comment", None))
+            ast.copy_location(new, node)
+            return new
+        return node
+
     def visit_Call(self, node):
         self.generic_visit(node)
-        if isinstance(node.func, ast.Name) and node.func.id == "input":
+        if isinstance(node.func, ast.Name) and (
+                node.func.id == "input" or node.func.id in self.async_funcs):
             return ast.Await(value=node)
         return node
 
-    # Avoid double-wrapping if the user already wrote "await input(...)".
     def visit_Await(self, node):
+        # Don't double-await something already awaited.
         inner = node.value
         if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
-                and inner.func.id == "input"):
+                and (inner.func.id == "input" or inner.func.id in self.async_funcs)):
             inner.args = [self.visit(a) for a in inner.args]
             inner.keywords = [self.visit(k) for k in inner.keywords]
             return node
@@ -674,11 +753,12 @@ class _Ticker(ast.NodeTransformer):
 
 def __make_async(source):
     tree = ast.parse(source)
-    ticker = _Ticker()
+    async_funcs = __collect_async_funcs(tree)
+    rewriter = _AsyncRewriter(async_funcs)
     new_body = []
     for stmt in tree.body:
-        new_body.append(ticker._tick_stmt())
-        new_body.append(ticker.visit(stmt))
+        new_body.append(rewriter._tick_stmt())
+        new_body.append(rewriter.visit(stmt))
     # Wrap everything in: async def __main(): <body>
     func = ast.AsyncFunctionDef(
         name="__main",
