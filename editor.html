@@ -304,7 +304,7 @@
       </div>
     </div>
 
-    <div class="output" id="output"><div class="turtle-wrap" id="turtleWrap"><canvas id="turtleCanvas" width="400" height="400"></canvas></div><span id="outText"></span>The program output will show up here.</span></div>
+    <div class="output" id="output"><div class="turtle-wrap" id="turtleWrap"><canvas id="turtleCanvas" width="400" height="400"></canvas></div><span id="outText">The program output will show up here.</span></div>
   </div>
 
   <div id="status">🐍 Loading Python…</div>
@@ -1159,6 +1159,14 @@ _mod.done = lambda *a, **k: None
 _mod.mainloop = lambda *a, **k: None
 _mod.exitonclick = lambda *a, **k: None
 
+# Clear the default-turtle singleton so the next program that uses turtle
+# constructs a fresh Turtle(), which re-reveals and resizes the canvas. The
+# JS runner calls this before each run (the canvas is hidden on every run).
+def _reset_module():
+    global _default
+    _default = None
+_mod._reset = _reset_module
+
 # Expose every public Turtle method as a module-level function that uses the
 # default turtle, matching how "from turtle import *" works in CPython.
 import inspect as _inspect
@@ -1237,14 +1245,17 @@ sys.modules["turtle"] = _mod
     const source = view.state.doc.toString();
     runBtn.disabled = true;
     clearOutput("");                 // (1) clear previous output on every run
+    // Reset the turtle module's default-turtle singleton so a program that
+    // uses turtle re-reveals the canvas (clearOutput hides it every run).
+    pyodide.runPython("import sys\nif 'turtle' in sys.modules: sys.modules['turtle']._reset()");
     await nextFrame();               // let the clear paint before we start
     const run = pyodide.globals.get("__run_user_code");
     try {
       // Run the student's code through the async runner, which inserts
       // `await __tick()` between statements so output paints incrementally.
       await run(source);
-      if (!outTextEl.textContent && !turtleWrap.classList.contains("show")) {
-        clearOutput("(no output)");
+      if (!outTextEl.textContent) {
+        appendOutput("(no output)", null);
       }
     } catch (e) {
       // Only reached for errors outside the Python try/except above.
