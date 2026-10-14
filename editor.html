@@ -486,6 +486,14 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     parent: document.getElementById("editor"),
   });
 
+  // Touch devices (phones/tablets) use a coarse pointer and no hover. We use
+  // this to avoid auto-focusing the editor after a run, which would pop the
+  // on-screen keyboard and hide the output.
+  function isTouchDevice() {
+    return window.matchMedia("(pointer: coarse)").matches ||
+           ("ontouchstart" in window && !window.matchMedia("(pointer: fine)").matches);
+  }
+
   // Replace the whole editor document (keeps undo history).
   function setEditorText(text) {
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
@@ -1196,9 +1204,10 @@ sys.modules["turtle"] = _mod
   statusEl.textContent = "🐍 Python ready!";
   setTimeout(() => (statusEl.style.display = "none"), 2000);
   runBtn.disabled = false;
-  // Put the cursor at the end of the document, then focus the editor.
+  // Put the cursor at the end of the document, then focus the editor. Skip
+  // focusing on touch devices so the on-screen keyboard does not pop up.
   view.dispatch({ selection: { anchor: view.state.doc.length } });
-  view.focus();
+  if (!isTouchDevice()) view.focus();
 
   function escapeHtml(text) {
     return text
@@ -1275,7 +1284,10 @@ sys.modules["turtle"] = _mod
     } finally {
       run.destroy();
       runBtn.disabled = false;
-      view.focus();          // return focus to the editor when the run ends
+      // Return focus to the editor when the run ends — but NOT on touch
+      // devices, where focusing pops the on-screen keyboard and hides the
+      // output box. There the user can tap the editor to resume typing.
+      if (!isTouchDevice()) view.focus();
     }
   }
 
