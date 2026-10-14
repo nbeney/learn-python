@@ -831,6 +831,7 @@ def __collect_async_funcs(tree):
     # calls, and note which call input() directly.
     calls = {}        # name -> set of called Name ids
     uses_input = set()
+    has_loop = set()  # functions whose body contains a loop (gets a __tick)
 
     class _Scan(ast.NodeVisitor):
         def __init__(self): self.stack = []
@@ -841,6 +842,14 @@ def __collect_async_funcs(tree):
             self.stack.pop()
         visit_FunctionDef = _visit_func
         visit_AsyncFunctionDef = _visit_func
+        def _visit_loop(self, node):
+            # A loop body gets an injected "await __tick()", so the enclosing
+            # function must become async too.
+            if self.stack:
+                has_loop.add(self.stack[-1])
+            self.generic_visit(node)
+        visit_For = _visit_loop
+        visit_While = _visit_loop
         def visit_Call(self, node):
             if self.stack and isinstance(node.func, ast.Name):
                 calls[self.stack[-1]].add(node.func.id)
@@ -850,7 +859,7 @@ def __collect_async_funcs(tree):
 
     _Scan().visit(tree)
 
-    async_funcs = set(uses_input)
+    async_funcs = set(uses_input) | has_loop
     changed = True
     while changed:
         changed = False
