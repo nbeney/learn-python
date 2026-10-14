@@ -1196,6 +1196,9 @@ sys.modules["turtle"] = _mod
   statusEl.textContent = "🐍 Python ready!";
   setTimeout(() => (statusEl.style.display = "none"), 2000);
   runBtn.disabled = false;
+  // Put the cursor at the end of the document, then focus the editor.
+  view.dispatch({ selection: { anchor: view.state.doc.length } });
+  view.focus();
 
   function escapeHtml(text) {
     return text
