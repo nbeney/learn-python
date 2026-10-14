@@ -220,12 +220,25 @@
   /* Turtle drawing surface. Hidden until a program uses the turtle module. */
   .turtle-wrap { display: none; margin-bottom: .6rem; min-height: 0; }
   .turtle-wrap.show { display: flex; }
-  #turtleCanvas {
-    display: block;
+  /* The drawing canvas and the cursor overlay are stacked on top of each
+     other. The overlay holds only the turtle cursor so it can be redrawn
+     without disturbing the permanent drawing underneath. */
+  .turtle-stack {
+    position: relative;
+    flex: 1 1 auto; min-height: 0;
+    width: 100%; height: 100%;
+  }
+  #turtleCanvas, #turtleCursor {
+    display: block; position: absolute; inset: 0;
     /* Fill the whole output area (rectangular, matching its aspect ratio). */
     width: 100%; height: 100%;
-    background: #fff; border-radius: 8px; border: 1px solid var(--border);
+    border-radius: 8px;
   }
+  #turtleCanvas {
+    background: #fff; border: 1px solid var(--border);
+  }
+  /* Overlay is transparent and never intercepts clicks. */
+  #turtleCursor { background: transparent; border: 1px solid transparent; pointer-events: none; }
   /* When turtle is active, let the canvas take all available output height. */
   .turtle-wrap.show { flex: 1 1 auto; min-height: 0; }
 
@@ -304,7 +317,7 @@
       </div>
     </div>
 
-    <div class="output" id="output"><div class="turtle-wrap" id="turtleWrap"><canvas id="turtleCanvas" width="400" height="400"></canvas></div><span id="outText">The program output will show up here.</span></div>
+    <div class="output" id="output"><div class="turtle-wrap" id="turtleWrap"><div class="turtle-stack"><canvas id="turtleCanvas" width="400" height="400"></canvas><canvas id="turtleCursor" width="400" height="400"></canvas></div></div><span id="outText">The program output will show up here.</span></div>
   </div>
 
   <div id="status">🐍 Loading Python…</div>
@@ -701,6 +714,8 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   // state and converts turtle coordinates (origin at centre, y up) into
   // canvas pixels, then calls these functions to draw. We only paint pixels.
   const tctx = turtleCanvas.getContext("2d");
+  const turtleCursor = document.getElementById("turtleCursor");
+  const cctx = turtleCursor.getContext("2d");
 
   // Size the canvas backing store to its displayed RECTANGLE times the device
   // pixel ratio, so lines are crisp (not stretched) on any pane size / HiDPI.
@@ -717,8 +732,14 @@ print(f"🚀 Have an amazing day, {name}! 💖")
       turtleCanvas.width = devW;
       turtleCanvas.height = devH;
     }
+    // Keep the cursor overlay the same size as the drawing canvas.
+    if (turtleCursor.width !== devW || turtleCursor.height !== devH) {
+      turtleCursor.width = devW;
+      turtleCursor.height = devH;
+    }
     // Map CSS pixels -> device pixels, so Python can draw in CSS-pixel space.
     tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Tell Python the drawing area size (in CSS pixels).
     if (globalThis.jsTurtleSetSize) {} // (Python pulls size via jsTurtleSize)
     turtleSizeW = cssW;
@@ -742,6 +763,7 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     outEl.classList.remove("has-turtle");
     turtleResize();          // (re)establish crisp backing store + transform
     turtleFillBg("#ffffff");
+    turtleCursorClear();
   }
 
   // Reveal the canvas the first time a program draws, then size its backing
@@ -760,7 +782,7 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   globalThis.jsTurtleBg = (color) => { turtleFillBg(color); };
 
   // Erase all drawings (clear()/reset()).
-  globalThis.jsTurtleClear = () => { turtleFillBg("#ffffff"); };
+  globalThis.jsTurtleClear = () => { turtleFillBg("#ffffff"); turtleCursorClear(); };
 
   // Draw a line in canvas pixel coordinates.
   globalThis.jsTurtleLine = (x1, y1, x2, y2, color, width) => {
@@ -779,6 +801,37 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     tctx.beginPath();
     tctx.arc(x, y, Math.max(1, size) / 2, 0, Math.PI * 2);
     tctx.fill();
+  };
+
+  // Clear the cursor overlay (CSS-pixel space; transform already applied).
+  function turtleCursorClear() {
+    cctx.save();
+    cctx.setTransform(1, 0, 0, 1, 0, 0);
+    cctx.clearRect(0, 0, turtleCursor.width, turtleCursor.height);
+    cctx.restore();
+  }
+
+  // Draw the turtle cursor as a small arrow-head triangle at (x, y) in canvas
+  // pixels, pointing along `headingRad` (canvas space, y down). Called after
+  // every move/turn. Clears the overlay first so there is only ever one cursor.
+  globalThis.jsTurtleCursor = (x, y, headingRad, color, visible) => {
+    turtleCursorClear();
+    if (!visible) return;
+    const len = 12, half = 6;      // triangle: tip length, base half-width
+    const cosA = Math.cos(headingRad), sinA = Math.sin(headingRad);
+    // Tip ahead of the turtle, two base corners behind it.
+    const tipX = x + len * cosA,       tipY = y + len * sinA;
+    const blX = x - half * sinA,       blY = y + half * cosA;
+    const brX = x + half * sinA,       brY = y - half * cosA;
+    cctx.fillStyle = color || "#000000";
+    cctx.strokeStyle = color || "#000000";
+    cctx.lineWidth = 1;
+    cctx.beginPath();
+    cctx.moveTo(tipX, tipY);
+    cctx.lineTo(blX, blY);
+    cctx.lineTo(brX, brY);
+    cctx.closePath();
+    cctx.fill();
   };
 
   // Fill a polygon given a flat [x1,y1,x2,y2,...] array of canvas pixels
@@ -978,7 +1031,8 @@ async def __run_user_code(source):
   pyodide.runPython(`
 import sys, math, types
 from js import (jsTurtleShow, jsTurtleBg, jsTurtleClear,
-                jsTurtleLine, jsTurtleDot, jsTurtleFill, jsTurtleSize)
+                jsTurtleLine, jsTurtleDot, jsTurtleFill, jsTurtleSize,
+                jsTurtleCursor)
 
 # The drawing area is rectangular and matches the output pane. We read its
 # size (CSS pixels) each time the turtle starts, place the origin at the
@@ -1021,6 +1075,7 @@ class Turtle:
         jsTurtleShow()            # reveal + size the canvas, then read its size
         global _W, _H
         _W, _H = _size()
+        self._draw_cursor()       # show the turtle at home by default
 
     # --- internal ---
     def _goto(self, x, y):
@@ -1032,6 +1087,14 @@ class Turtle:
         if self._filling:
             cx, cy = _to_canvas(self._x, self._y)
             self._fillpts.extend([cx, cy])
+        self._draw_cursor()
+
+    def _draw_cursor(self):
+        # Draw the little turtle arrow on the overlay at the current position
+        # and heading. Canvas y points down, so the heading angle is negated.
+        cx, cy = _to_canvas(self._x, self._y)
+        jsTurtleCursor(cx, cy, math.radians(-self._heading),
+                       self._pencolor, bool(self._visible))
 
     # --- Movement ---
     def forward(self, d):
@@ -1041,18 +1104,23 @@ class Turtle:
         self.forward(-d)
     def right(self, a):
         self._heading = (self._heading - a) % 360
+        self._draw_cursor()
     def left(self, a):
         self._heading = (self._heading + a) % 360
+        self._draw_cursor()
     def goto(self, x, y=None):
         if y is None:
             x, y = x
         self._goto(x, y)
     def setx(self, x): self._goto(x, self._y)
     def sety(self, y): self._goto(self._x, y)
-    def setheading(self, a): self._heading = a % 360
+    def setheading(self, a):
+        self._heading = a % 360
+        self._draw_cursor()
     def home(self):
         self._goto(0, 0)
         self._heading = 0.0
+        self._draw_cursor()
     def circle(self, r, extent=360, steps=None):
         # Approximate the arc with short line segments, like real turtle.
         if steps is None:
@@ -1084,6 +1152,7 @@ class Turtle:
         if not c:
             return self._pencolor
         self._pencolor = _coltostr(c[0] if len(c) == 1 else c)
+        self._draw_cursor()
     def fillcolor(self, *c):
         if not c:
             return self._fillcolor
@@ -1096,6 +1165,7 @@ class Turtle:
         else:
             self._pencolor = _coltostr(args[0])
             self._fillcolor = _coltostr(args[1])
+        self._draw_cursor()
     def begin_fill(self):
         self._filling = True
         cx, cy = _to_canvas(self._x, self._y)
@@ -1107,8 +1177,12 @@ class Turtle:
         self._fillpts = []
 
     # --- Appearance / screen ---
-    def hideturtle(self): self._visible = False
-    def showturtle(self): self._visible = True
+    def hideturtle(self):
+        self._visible = False
+        self._draw_cursor()
+    def showturtle(self):
+        self._visible = True
+        self._draw_cursor()
     def isvisible(self): return self._visible
     def bgcolor(self, *c):
         if not c:
