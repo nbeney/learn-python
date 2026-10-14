@@ -763,6 +763,7 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     outEl.classList.remove("has-turtle");
     turtleResize();          // (re)establish crisp backing store + transform
     turtleFillBg("#ffffff");
+    turtleCursors.clear();
     turtleCursorClear();
   }
 
@@ -782,7 +783,7 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   globalThis.jsTurtleBg = (color) => { turtleFillBg(color); };
 
   // Erase all drawings (clear()/reset()).
-  globalThis.jsTurtleClear = () => { turtleFillBg("#ffffff"); turtleCursorClear(); };
+  globalThis.jsTurtleClear = () => { turtleFillBg("#ffffff"); turtleCursors.clear(); turtleCursorClear(); };
 
   // Draw a line in canvas pixel coordinates.
   globalThis.jsTurtleLine = (x1, y1, x2, y2, color, width) => {
@@ -803,7 +804,13 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     tctx.fill();
   };
 
-  // Clear the cursor overlay (CSS-pixel space; transform already applied).
+  // Per-turtle cursor registry. Each program can create several Turtle()
+  // instances; every one keeps its own entry here (keyed by a numeric id from
+  // Python), so moving one turtle does not erase the others. The whole overlay
+  // is repainted from this map on every change.
+  let turtleCursors = new Map();   // id -> {x, y, headingRad, color, visible}
+
+  // Clear the cursor overlay (raw device pixels, ignoring the DPR transform).
   function turtleCursorClear() {
     cctx.save();
     cctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -811,27 +818,35 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     cctx.restore();
   }
 
-  // Draw the turtle cursor as a small arrow-head triangle at (x, y) in canvas
-  // pixels, pointing along `headingRad` (canvas space, y down). Called after
-  // every move/turn. Clears the overlay first so there is only ever one cursor.
-  globalThis.jsTurtleCursor = (x, y, headingRad, color, visible) => {
-    turtleCursorClear();
-    if (!visible) return;
+  // Draw one arrow-head triangle at (x, y) in canvas pixels, pointing along
+  // `headingRad` (canvas space, y down).
+  function drawOneCursor(c) {
+    if (!c || !c.visible) return;
     const len = 12, half = 6;      // triangle: tip length, base half-width
-    const cosA = Math.cos(headingRad), sinA = Math.sin(headingRad);
-    // Tip ahead of the turtle, two base corners behind it.
-    const tipX = x + len * cosA,       tipY = y + len * sinA;
-    const blX = x - half * sinA,       blY = y + half * cosA;
-    const brX = x + half * sinA,       brY = y - half * cosA;
-    cctx.fillStyle = color || "#000000";
-    cctx.strokeStyle = color || "#000000";
-    cctx.lineWidth = 1;
+    const cosA = Math.cos(c.headingRad), sinA = Math.sin(c.headingRad);
+    const tipX = c.x + len * cosA,  tipY = c.y + len * sinA;
+    const blX = c.x - half * sinA,  blY = c.y + half * cosA;
+    const brX = c.x + half * sinA,  brY = c.y - half * cosA;
+    cctx.fillStyle = c.color || "#000000";
     cctx.beginPath();
     cctx.moveTo(tipX, tipY);
     cctx.lineTo(blX, blY);
     cctx.lineTo(brX, brY);
     cctx.closePath();
     cctx.fill();
+  }
+
+  // Repaint every registered turtle cursor onto the (freshly cleared) overlay.
+  function repaintCursors() {
+    turtleCursorClear();
+    turtleCursors.forEach(drawOneCursor);
+  }
+
+  // Python calls this after a turtle moves/turns/changes. We record that
+  // turtle's state by id, then repaint all cursors so each one stays visible.
+  globalThis.jsTurtleCursor = (id, x, y, headingRad, color, visible) => {
+    turtleCursors.set(id, { x, y, headingRad, color, visible: !!visible });
+    repaintCursors();
   };
 
   // Fill a polygon given a flat [x1,y1,x2,y2,...] array of canvas pixels
@@ -1059,8 +1074,13 @@ def _to_canvas(x, y):
     # turtle (0,0) centre, y up  ->  canvas top-left origin, y down
     return (_W / 2 + x, _H / 2 - y)
 
+_next_turtle_id = 0                # unique id per Turtle, for the cursor overlay
+
 class Turtle:
     def __init__(self):
+        global _next_turtle_id
+        self._id = _next_turtle_id
+        _next_turtle_id += 1
         self._x = 0.0
         self._y = 0.0
         self._heading = 0.0        # degrees, 0 = east, CCW positive
@@ -1090,10 +1110,11 @@ class Turtle:
         self._draw_cursor()
 
     def _draw_cursor(self):
-        # Draw the little turtle arrow on the overlay at the current position
-        # and heading. Canvas y points down, so the heading angle is negated.
+        # Update this turtle's entry on the overlay at the current position and
+        # heading. Canvas y points down, so the heading angle is negated. The
+        # id keeps multiple turtles independent so one does not erase another.
         cx, cy = _to_canvas(self._x, self._y)
-        jsTurtleCursor(cx, cy, math.radians(-self._heading),
+        jsTurtleCursor(self._id, cx, cy, math.radians(-self._heading),
                        self._pencolor, bool(self._visible))
 
     # --- Movement ---
@@ -1241,8 +1262,9 @@ _mod.exitonclick = lambda *a, **k: None
 # constructs a fresh Turtle(), which re-reveals and resizes the canvas. The
 # JS runner calls this before each run (the canvas is hidden on every run).
 def _reset_module():
-    global _default
+    global _default, _next_turtle_id
     _default = None
+    _next_turtle_id = 0
 _mod._reset = _reset_module
 
 # Expose every public Turtle method as a module-level function that uses the
