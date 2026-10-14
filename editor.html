@@ -1089,7 +1089,6 @@ class Turtle:
         self._fillcolor = "#000000"
         self._width = 1.0
         self._visible = True
-        self._speed = 6
         self._filling = False
         self._fillpts = []
         jsTurtleShow()            # reveal + size the canvas, then read its size
@@ -1157,10 +1156,6 @@ class Turtle:
         col = _coltostr(color) if color is not None else self._pencolor
         cx, cy = _to_canvas(self._x, self._y)
         jsTurtleDot(cx, cy, size, col)
-    def speed(self, s=None):
-        if s is None:
-            return self._speed
-        self._speed = s           # accepted for compatibility (drawing is instant)
 
     # --- Pen ---
     def penup(self): self._down = False
@@ -1214,8 +1209,6 @@ class Turtle:
     def reset(self):
         jsTurtleClear()
         self.__init__()
-    def shape(self, name=None): pass          # icon not drawn in this shim
-    def title(self, *a): pass
 
     # --- State queries ---
     def position(self): return (self._x, self._y)
@@ -1247,7 +1240,6 @@ def Screen():
     scr.bgcolor = t.bgcolor
     scr.clear = t.clear
     scr.reset = t.reset
-    scr.title = t.title
     return scr
 
 # Build the module and expose Turtle, Screen, and the module-level functions.
