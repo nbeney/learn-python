@@ -819,7 +819,9 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   }
 
   // Draw one arrow-head triangle at (x, y) in canvas pixels, pointing along
-  // `headingRad` (canvas space, y down).
+  // `headingRad` (canvas space, y down). When the pen is DOWN the marker is
+  // filled (solid) — "I'm drawing"; when the pen is UP it is drawn as an
+  // outline only (hollow) — "I'm just moving".
   function drawOneCursor(c) {
     if (!c || !c.visible) return;
     const len = 12, half = 6;      // triangle: tip length, base half-width
@@ -827,13 +829,25 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     const tipX = c.x + len * cosA,  tipY = c.y + len * sinA;
     const blX = c.x - half * sinA,  blY = c.y + half * cosA;
     const brX = c.x + half * sinA,  brY = c.y - half * cosA;
-    cctx.fillStyle = c.color || "#000000";
+    const color = c.color || "#000000";
     cctx.beginPath();
     cctx.moveTo(tipX, tipY);
     cctx.lineTo(blX, blY);
     cctx.lineTo(brX, brY);
     cctx.closePath();
-    cctx.fill();
+    if (c.down) {
+      cctx.fillStyle = color;
+      cctx.fill();
+    } else {
+      // Hollow marker: white interior so the trail underneath doesn't show
+      // through, with a coloured outline.
+      cctx.fillStyle = "#ffffff";
+      cctx.fill();
+      cctx.lineWidth = 1.5;
+      cctx.lineJoin = "round";
+      cctx.strokeStyle = color;
+      cctx.stroke();
+    }
   }
 
   // Repaint every registered turtle cursor onto the (freshly cleared) overlay.
@@ -844,8 +858,8 @@ print(f"🚀 Have an amazing day, {name}! 💖")
 
   // Python calls this after a turtle moves/turns/changes. We record that
   // turtle's state by id, then repaint all cursors so each one stays visible.
-  globalThis.jsTurtleCursor = (id, x, y, headingRad, color, visible) => {
-    turtleCursors.set(id, { x, y, headingRad, color, visible: !!visible });
+  globalThis.jsTurtleCursor = (id, x, y, headingRad, color, visible, down) => {
+    turtleCursors.set(id, { x, y, headingRad, color, visible: !!visible, down: !!down });
     repaintCursors();
   };
 
@@ -1114,7 +1128,7 @@ class Turtle:
         # id keeps multiple turtles independent so one does not erase another.
         cx, cy = _to_canvas(self._x, self._y)
         jsTurtleCursor(self._id, cx, cy, math.radians(-self._heading),
-                       self._pencolor, bool(self._visible))
+                       self._pencolor, bool(self._visible), bool(self._down))
 
     # --- Movement ---
     def forward(self, d):
@@ -1158,8 +1172,8 @@ class Turtle:
         jsTurtleDot(cx, cy, size, col)
 
     # --- Pen ---
-    def penup(self): self._down = False
-    def pendown(self): self._down = True
+    def penup(self): self._down = False; self._draw_cursor()
+    def pendown(self): self._down = True; self._draw_cursor()
     def pensize(self, w=None):
         if w is None:
             return self._width
