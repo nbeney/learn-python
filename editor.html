@@ -1073,12 +1073,6 @@ class Turtle:
             return self._speed
         self._speed = s           # accepted for compatibility (drawing is instant)
 
-    # aliases
-    fd = forward; bk = backward; back = backward
-    rt = right; lt = left
-    setpos = goto; setposition = goto
-    seth = setheading
-
     # --- Pen ---
     def penup(self): self._down = False
     def pendown(self): self._down = True
@@ -1112,11 +1106,6 @@ class Turtle:
         self._filling = False
         self._fillpts = []
 
-    # aliases
-    pu = penup; up = penup
-    pd = pendown; down = pendown
-    width = pensize
-
     # --- Appearance / screen ---
     def hideturtle(self): self._visible = False
     def showturtle(self): self._visible = True
@@ -1132,11 +1121,9 @@ class Turtle:
         self.__init__()
     def shape(self, name=None): pass          # icon not drawn in this shim
     def title(self, *a): pass
-    ht = hideturtle; st = showturtle
 
     # --- State queries ---
     def position(self): return (self._x, self._y)
-    pos = position
     def xcor(self): return self._x
     def ycor(self): return self._y
     def heading(self): return self._heading
