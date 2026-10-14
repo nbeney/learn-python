@@ -1082,6 +1082,33 @@ def _coltostr(c):
         return "rgb(%d,%d,%d)" % (int(r), int(g), int(b))
     return str(c)
 
+def _chan255(v):
+    # Map one colour channel to 0..255. A float means the 0..1 scale; an int
+    # means it is already 0..255. Clamp to the valid range either way.
+    x = v * 255.0 if isinstance(v, float) else float(v)
+    return max(0, min(255, int(round(x))))
+
+def greyscale(n):
+    # Return a grey colour string. n may be a float 0..1 or an int 0..255.
+    g = _chan255(n)
+    return "rgb(%d,%d,%d)" % (g, g, g)
+
+def hsb(hue, saturation, brightness):
+    # Return a colour string from HSB/HSV. hue is 0..360; saturation and
+    # brightness may each be a float 0..1 or an int 0..255. Usable anywhere a
+    # colour is expected, e.g. pencolor(hsb(200, 1.0, 1.0)).
+    h = (float(hue) % 360.0) / 60.0
+    s = _chan255(saturation) / 255.0
+    v = _chan255(brightness) / 255.0
+    i = int(h) % 6
+    f = h - int(h)
+    p = v * (1.0 - s)
+    q = v * (1.0 - s * f)
+    t = v * (1.0 - s * (1.0 - f))
+    r, g, b = ((v, t, p), (q, v, p), (p, v, t),
+               (p, q, v), (t, p, v), (v, p, q))[i]
+    return "rgb(%d,%d,%d)" % (int(round(r * 255)), int(round(g * 255)), int(round(b * 255)))
+
 _W, _H = 400.0, 400.0              # drawing area size, refreshed on turtle start
 
 def _to_canvas(x, y):
@@ -1344,6 +1371,10 @@ for _name, _member in list(vars(Turtle).items()):
 
 # Standalone drawing helper (not a Turtle method).
 _mod.showgrid = showgrid
+
+# Colour helpers, usable with pencolor()/fillcolor()/color().
+_mod.greyscale = greyscale
+_mod.hsb = hsb
 
 sys.modules["turtle"] = _mod
 `);
