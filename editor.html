@@ -1256,6 +1256,61 @@ def Screen():
     scr.reset = t.reset
     return scr
 
+# --- Drawing helper: grid + axis ------------------------------------------
+# Draws reference lines directly onto the canvas (independent of the turtle's
+# pen), using turtle coordinates with (0,0) at the centre. The three levels
+# are distinguished by BOTH colour and width so the hierarchy stays clear for
+# any tick spacing:  minor = thin + light,  major = thicker + darker,
+# axis = thickest + darkest.
+_GRID_MINOR = "#e9e9e9"
+_GRID_MAJOR = "#b0b0b0"
+_AXIS_COLOR = "#5a5a5a"
+_MINOR_W = 1
+_MAJOR_W = 2
+_AXIS_W  = 3
+
+def _raw_line(x1, y1, x2, y2, color, width):
+    # Draw a straight line given in TURTLE coordinates (converted to canvas).
+    cx1, cy1 = _to_canvas(x1, y1)
+    cx2, cy2 = _to_canvas(x2, y2)
+    jsTurtleLine(cx1, cy1, cx2, cy2, color, width)
+
+def showgrid(minor_ticks=10, major_ticks=100):
+    # A grid with the x/y axes drawn on top. 'minor_ticks' and 'major_ticks'
+    # are the spacings (in turtle units) of the faint and bold grid lines.
+    # Lines are spaced out from the origin in all four directions so the grid
+    # lines up with the centre, and major lines are drawn over minor ones.
+    _get_default()                 # ensure the canvas is shown and sized
+    hx, hy = _W / 2, _H / 2
+
+    def spaced(step):
+        # Offsets from 0 out to the edge (excluding 0, which the axis covers).
+        vals = []
+        if step and step > 0:
+            k = step
+            while k <= max(hx, hy):
+                vals.append(k)
+                k += step
+        return vals
+
+    def grid_lines(step, color, width):
+        for x in spaced(step):
+            if x <= hx:
+                _raw_line(x, -hy, x, hy, color, width)
+                _raw_line(-x, -hy, -x, hy, color, width)
+        for y in spaced(step):
+            if y <= hy:
+                _raw_line(-hx, y, hx, y, color, width)
+                _raw_line(-hx, -y, hx, -y, color, width)
+
+    # Order matters: minor, then major on top, then the axes on top of all.
+    if minor_ticks and minor_ticks > 0:
+        grid_lines(minor_ticks, _GRID_MINOR, _MINOR_W)
+    if major_ticks and major_ticks > 0:
+        grid_lines(major_ticks, _GRID_MAJOR, _MAJOR_W)
+    _raw_line(-hx, 0, hx, 0, _AXIS_COLOR, _AXIS_W)   # x axis
+    _raw_line(0, -hy, 0, hy, _AXIS_COLOR, _AXIS_W)   # y axis
+
 # Build the module and expose Turtle, Screen, and the module-level functions.
 _mod = types.ModuleType("turtle")
 _mod.Turtle = Turtle
@@ -1286,6 +1341,9 @@ for _name, _member in list(vars(Turtle).items()):
         continue
     if callable(_member):
         setattr(_mod, _name, _make_fn(_name))
+
+# Standalone drawing helper (not a Turtle method).
+_mod.showgrid = showgrid
 
 sys.modules["turtle"] = _mod
 `);
