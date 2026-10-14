@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🐍 Python Basics Cheatsheet</title>
+
+<!-- Apply the saved theme before paint to avoid a flash of the wrong colours. -->
+<script>
+  (function () {
+    var t = localStorage.getItem("theme") || "system";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+
+<style>
+  /* Light theme is the base. */
+  :root {
+    --bg: #f6f8fa;
+    --card: #ffffff;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --border: #d0d7de;
+  }
+
+  /* Explicit dark choice. */
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --border: #30363d;
+  }
+
+  /* System mode: follow the OS when no explicit light/dark is chosen. */
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="system"], :root:not([data-theme]) {
+      --bg: #0d1117;
+      --card: #161b22;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #58a6ff;
+      --border: #30363d;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem 1rem 4rem;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 2.5rem; }
+  header h1 { font-size: 2.4rem; margin: 0 0 .3rem; }
+  header p { color: var(--muted); margin: 0; }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1.6rem;
+  }
+
+  h2 { margin: 0 0 .2rem; font-size: 1.5rem; }
+  .blurb { color: var(--muted); margin: 0 0 1rem; font-size: .95rem; }
+
+  /* The editor host. CodeMirror 6 (oneDark theme) renders inside. */
+  .editor { margin-top: .6rem; border-radius: 10px; overflow: hidden; }
+  .cm-editor { font-size: .95rem; }
+  .cm-editor.cm-focused { outline: none; }
+
+  .toolbar { display: flex; justify-content: flex-end; gap: .5rem; align-items: center; margin-top: .5rem; }
+  .run-btn {
+    background: var(--accent); color: #fff; border: none;
+    font-weight: 600; font-size: .9rem; padding: .4rem .9rem;
+    border-radius: 8px; cursor: pointer;
+  }
+  .run-btn:disabled { opacity: .6; cursor: wait; }
+
+  .output {
+    margin-top: .5rem; background: #000; color: #d1f7c4;
+    border-radius: 8px; padding: .6rem .8rem; min-height: 1.2rem;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .9rem; white-space: pre-wrap; display: none;
+  }
+  .output.show { display: block; }
+  .output .answer { color: #ffd866; font-weight: 600; }  /* the typed answer */
+  .output .error { color: #ff9c8a; }                     /* only the traceback */
+
+  /* Inline input() field: looks like typing straight into the output. */
+  .output .inline-input {
+    background: transparent; border: none; outline: none;
+    color: #ffd866; font-weight: 600;
+    font-family: inherit; font-size: inherit;
+    padding: 0; margin: 0; min-width: 4ch;
+    caret-color: #ffd866;
+  }
+  .output.awaiting-input { cursor: text; }
+
+  .tip {
+    border-left: 4px solid var(--accent);
+    background: rgba(88,166,255,.08);
+    padding: .5rem .9rem; border-radius: 6px;
+    margin-top: 1rem; font-size: .9rem;
+  }
+
+  footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 2rem; }
+
+  /* ---------- Corner menu (navigation + theme) ---------- */
+  /* Align the menu with the right edge of the page content (.wrap). */
+  .menu {
+    position: fixed; top: 12px; z-index: 50;
+    left: 0; right: 0;
+    margin: 0 auto;
+    width: calc(100% - 2rem); max-width: 820px;
+    display: flex; justify-content: flex-end;
+    pointer-events: none;
+  }
+  .menu > * { pointer-events: auto; }
+  .menu-btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    font-size: 1.2rem; line-height: 1; cursor: pointer;
+    width: 42px; height: 42px;
+  }
+  .menu-btn:hover { border-color: var(--accent); }
+  .menu-panel {
+    position: absolute; top: 48px; right: 0;
+    min-width: 180px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: .4rem;
+    box-shadow: 0 10px 24px rgba(0,0,0,.22);
+    display: none;
+  }
+  .menu.open .menu-panel { display: block; }
+  .menu-panel a {
+    display: block; text-decoration: none;
+    color: var(--text); font-size: .95rem;
+    padding: .5rem .6rem; border-radius: 8px;
+  }
+  .menu-panel a:hover { background: rgba(127,127,127,.14); }
+  .menu-panel a[aria-current="page"] {
+    color: var(--muted); font-weight: 600; pointer-events: none;
+  }
+  .menu-panel a[aria-current="page"]::after { content: " ●"; color: var(--accent); }
+  .menu-sep { height: 1px; background: var(--border); margin: .4rem .2rem; }
+  .menu-label { font-size: .75rem; color: var(--muted); padding: .2rem .6rem; }
+
+  /* The snake emoji in the title links home; keep it looking like plain text. */
+  .home-emoji { color: inherit; text-decoration: none; cursor: pointer; }
+  .home-emoji:hover { filter: brightness(1.15); }
+
+  /* Theme switcher (Light / Dark / System), lives inside the menu. */
+  .theme-switch {
+    display: flex; gap: .15rem; padding: .2rem .4rem .3rem;
+  }
+  .theme-switch button {
+    flex: 1; background: transparent; border: 1px solid var(--border);
+    cursor: pointer; color: var(--muted); font-size: .95rem; line-height: 1;
+    padding: .4rem; border-radius: 8px;
+  }
+  .theme-switch button[aria-pressed="true"] {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  .theme-switch button:hover { color: var(--text); }
+  .theme-switch button[aria-pressed="true"]:hover { color: #fff; }
+
+  #status {
+    position: fixed; bottom: 10px; right: 12px;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--muted); font-size: .8rem;
+    padding: .35rem .7rem; border-radius: 20px;
+  }
+
+  /* ---------- PRINT: light background to save ink ---------- */
+  @media print {
+    body { background: #fff; color: #111; padding: 0; }
+    section { background: #fff; border: 1px solid #ccc; break-inside: avoid; }
+    .blurb, header p, footer { color: #555; }
+    .tip { background: #f4f8ff; }
+    .toolbar, #status, .output, .menu { display: none !important; }
+    /* CodeMirror prints its own dark theme by default; force light + show text */
+    .cm-editor, .cm-editor .cm-gutters, .cm-editor .cm-content,
+    .cm-editor .cm-line, .cm-editor .cm-scroller {
+      background: #fff !important; color: #111 !important;
+    }
+    .cm-editor .cm-gutters { color: #999 !important; border-right: 1px solid #ddd !important; }
+    .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Corner menu: navigation + theme. Shared across sub-pages. -->
+<nav class="menu no-print" id="menu">
+  <button class="menu-btn" id="menuBtn" aria-haspopup="true" aria-expanded="false" aria-label="Menu">☰</button>
+  <div class="menu-panel" role="menu">
+    <a href="index.html" role="menuitem">🏠 Home</a>
+    <a href="cheatsheet.html" role="menuitem">📖 Cheatsheets</a>
+    <a href="shell.html" role="menuitem">⌨️ Shell</a>
+    <a href="editor.html" role="menuitem">📝 Editor</a>
+    <div class="menu-sep"></div>
+    <div class="menu-label">Theme</div>
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button data-theme-value="light"  title="Light">☀️</button>
+      <button data-theme-value="dark"   title="Dark">🌙</button>
+      <button data-theme-value="system" title="Match system">💻</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header>
+    <h1><a href="index.html" class="home-emoji" title="Home" aria-label="Home">🐍</a> Python Basics</h1>
+    <p>Fun, editable, runnable. Change the code, then press ▶ Run!</p>
+  </header>
+
+  <section>
+    <h2>🖨️ print — say something</h2>
+    <p class="blurb">Shows text on the screen.</p>
+    <div class="example" data-code='
+print("Hello, world! 👋")
+print("Coding is fun 🎉")
+    '></div>
+  </section>
+
+  <section>
+    <h2>📦 variables — remember things</h2>
+    <p class="blurb">A box with a name that holds a value.</p>
+    <div class="example" data-code='
+name = "Ada"
+age = 10
+print(name, "is", age, "years old 🎂")
+    '></div>
+  </section>
+
+  <section>
+    <h2>⌨️ input — ask a question</h2>
+    <p class="blurb">A pop-up appears. Type your answer and press OK.</p>
+    <div class="example" data-code='
+color = input("What is your favourite colour? ")
+print("Cool! I like", color, "too 🌈")
+    '></div>
+
+    <p class="blurb" style="margin-top:1rem">Input is always text. Use <code>int()</code> to turn it into a number you can do maths with.</p>
+    <div class="example" data-code='
+age = int(input("How old are you? "))
+print("Next year you will be", age + 1, "🎂")
+    '></div>
+  </section>
+
+  <section>
+    <h2>🔁 loops — do it again and again</h2>
+    <p class="blurb">Repeat code without typing it lots of times.</p>
+    <div class="example" data-code='
+for star in range(4):
+    print(star, "⭐" * star)
+    '></div>
+  </section>
+
+  <section>
+    <h2>🔀 if — make a choice</h2>
+    <p class="blurb">Do different things depending on the answer.</p>
+    <div class="example" data-code='
+score = int(input("What is your score? "))
+
+if score >= 10:
+    print("You win! 🏆")
+elif score >= 5:
+    print("Almost there! 💪")
+else:
+    print("Try again! 🔁")
+    '></div>
+  </section>
+
+  <section>
+    <h2>🎲 random — surprise me!</h2>
+    <p class="blurb">Pick a random whole number. Great for dice and games. Run it a few times!</p>
+    <div class="example" data-code='
+import random
+
+dice = random.randint(1, 6)
+print("You rolled a", dice, "🎲")
+    '></div>
+
+    <p class="blurb" style="margin-top:1rem">Pick a random item from a list.</p>
+    <div class="example" data-code='
+import random
+
+fruits = ["🍎 apple", "🍌 banana", "🍇 grapes", "🍊 orange"]
+choice = random.choice(fruits)
+print("Today you get:", choice)
+    '></div>
+  </section>
+
+  <section>
+    <h2>🧮 maths — count and calculate</h2>
+    <p class="blurb">Python is a great calculator.</p>
+    <div class="example" data-code='
+print(7 + 2)   # add
+print(7 - 2)   # subtract
+print(7 * 2)   # multiply
+print(7 / 2)   # divide
+print(7 // 2)  # quotient
+print(7 % 2)   # remainder
+print(7 ** 2)  # power
+    '></div>
+  </section>
+
+  <section>
+    <h2>⚖️ comparisons — true or false?</h2>
+    <p class="blurb">These questions answer <code>True</code> or <code>False</code>. They are what <code>if</code> uses to decide.</p>
+    <div class="example" data-code='
+print(5 == 5)  # equal to? ✅
+print(5 != 3)  # not equal to? ❎
+print(5 > 3)   # greater than? ⬆️
+print(5 < 3)   # less than? ⬇️
+print(5 >= 5)  # greater than or equal? 📈
+print(5 <= 4)  # less than or equal? 📉
+    '></div>
+
+    <p class="blurb" style="margin-top:1rem">You can compare words too. Python checks them letter by letter, like a dictionary.</p>
+    <div class="example" data-code='
+print("cat" == "cat")      # same word? ✅
+print("cat" == "Cat")      # capitals matter! ❎
+print("cat" != "dog")      # different words? ✅
+print("apple" < "banana")  # apple comes first 🔤
+print("zebra" > "ant")     # zebra comes later 🔤
+    '></div>
+  </section>
+
+  <section>
+    <h2>🔗 boolean expressions — combine questions</h2>
+    <p class="blurb">Join <code>True</code>/<code>False</code> values with <code>and</code>, <code>or</code>, <code>not</code>.</p>
+    <div class="example" data-code='
+age = 10
+
+print(age > 5 and age < 12)   # BOTH must be true 🤝
+print(age < 5 or age > 8)     # EITHER can be true 🙌
+print(not age == 7)           # flips true/false 🔄
+    '></div>
+
+    <p class="blurb" style="margin-top:1rem">They are handy inside <code>if</code>.</p>
+    <div class="example" data-code='
+age = int(input("How old are you? "))
+
+if age >= 8 and age <= 11:
+    print("Welcome to Code Club! 🎉")
+else:
+    print("This club is for ages 8 to 11 🙂")
+    '></div>
+  </section>
+
+  <footer>© 2023-2027 Nicolas Beney. All rights reserved.</footer>
+</div>
+
+<div id="status">🐍 Loading Python…</div>
+
+<!-- Menu + theme wiring. Standalone so it works regardless of Pyodide. -->
+<script>
+  (function () {
+    // Theme
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll(".theme-switch button");
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      localStorage.setItem("theme", theme);
+      buttons.forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.dataset.themeValue === theme));
+      });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () { applyTheme(b.dataset.themeValue); });
+    });
+    applyTheme(localStorage.getItem("theme") || "system");
+
+    // Menu open/close
+    var menu = document.getElementById("menu");
+    var menuBtn = document.getElementById("menuBtn");
+    if (menu && menuBtn) {
+      function setOpen(open) {
+        menu.classList.toggle("open", open);
+        menuBtn.setAttribute("aria-expanded", String(open));
+      }
+      menuBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setOpen(!menu.classList.contains("open"));
+      });
+      document.addEventListener("click", function (e) {
+        if (!menu.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") setOpen(false);
+      });
+    }
+  })();
+</script>
+
+<!-- CodeMirror (locally bundled, assets/codemirror.min.js) + Pyodide. -->
+<script type="module">
+  // Locally bundled CodeMirror (one copy of @codemirror/state, works offline).
+  // Rebuild with: cd vendor && npm run build
+  const { EditorView, basicSetup, keymap, indentWithTab, Prec, python, oneDark, indentUnit } =
+    await import("./assets/codemirror.min.js");
+
+  const statusEl = document.getElementById("status");
+
+  // Build an editor + Run button + output area for each .example box.
+  const editors = [];
+  document.querySelectorAll(".example").forEach((host) => {
+    // Trim surrounding whitespace so data-code can be laid out on its own
+    // lines in the HTML (leading newline + trailing indentation) without
+    // showing a blank first line or breaking Python indentation.
+    const code = (host.getAttribute("data-code") || "").trim();
+
+    const edWrap = document.createElement("div");
+    edWrap.className = "editor";
+    host.appendChild(edWrap);
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "toolbar";
+    const btn = document.createElement("button");
+    btn.className = "run-btn";
+    btn.textContent = "▶ Run";
+    btn.disabled = true; // enabled once Python is ready
+    toolbar.appendChild(btn);
+
+    const out = document.createElement("div");
+    out.className = "output";
+
+    // Per-box run handler. Mod-Enter (below) and the button both call this.
+    const run = () => { if (!btn.disabled) runCode(view, out, btn); };
+
+    const view = new EditorView({
+      doc: code,
+      extensions: [
+        basicSetup, python(), oneDark, indentUnit.of("    "),
+        // Prec.highest so Mod-Enter beats basicSetup's default Enter binding.
+        Prec.highest(keymap.of([
+          { key: "Mod-Enter", preventDefault: true, run: () => { run(); return true; } },
+        ])),
+        keymap.of([indentWithTab]),
+      ],
+      parent: edWrap,
+    });
+
+    host.appendChild(toolbar);
+    host.appendChild(out);
+
+    editors.push({ view, btn, out });
+  });
+
+  // Load Pyodide once; share it across all boxes.
+  const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
+  const pyodide = await loadPyodide();
+
+  // ---------- Streaming output + inline input() ----------
+  // Output streams into the currently running snippet's output box as it is
+  // produced, and input() reads from an inline field in that same box (no
+  // pop-up). `currentOut` points at the active snippet's output element.
+  let currentOut = null;
+  let inAnswer = false;        // tracking \x01..\x02 answer regions across chunks
+  let activeInput = null;      // the live inline <input>, if any
+  let lastTick = 0, wroteSinceTick = false;
+
+  // jsWrite: stream a chunk of stdout/stderr into the current output box.
+  globalThis.jsWrite = (text, isErr) => {
+    wroteSinceTick = true;
+    appendOutput(text, isErr ? "error" : null);
+  };
+
+  // jsReadLine: show an inline input field in the current output box and
+  // resolve with the typed text when the user presses Enter.
+  globalThis.jsReadLine = () => new Promise((resolve) => {
+    const out = currentOut;
+    const field = document.createElement("input");
+    field.type = "text";
+    field.className = "inline-input";
+    field.autocomplete = "off"; field.autocapitalize = "off"; field.spellcheck = false;
+    field.setAttribute("aria-label", "Program input");
+    const resize = () => { field.style.width = Math.max(4, field.value.length + 1) + "ch"; };
+    field.addEventListener("input", resize);
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const typed = field.value;
+        field.remove();
+        activeInput = null;
+        out.classList.remove("awaiting-input");
+        appendOutput("\x01" + typed + "\x02\n", null);  // echo answer + newline
+        resolve(typed);
+      }
+    });
+    out.appendChild(field);
+    out.classList.add("awaiting-input");
+    activeInput = field;
+    resize();
+    field.focus();
+  });
+
+  // jsTick: let the browser paint between statements (throttled) so output
+  // appears incrementally without crawling on tight compute loops.
+  globalThis.jsTick = () => {
+    const now = performance.now();
+    if (wroteSinceTick || now - lastTick > 50) {
+      wroteSinceTick = false; lastTick = now;
+      return new Promise((r) => requestAnimationFrame(() => r()));
+    }
+    return Promise.resolve();
+  };
+
+  pyodide.runPython(`
+import builtins, sys, ast, traceback
+from js import jsWrite, jsReadLine, jsTick
+
+class _JsOut:
+    def __init__(self, is_err): self._is_err = is_err
+    def write(self, s):
+        if s: jsWrite(s, self._is_err)
+        return len(s)
+    def flush(self): pass
+
+sys.stdout = _JsOut(False)
+sys.stderr = _JsOut(True)
+
+# input() is async: it prints the prompt then waits for the inline field.
+# The AST transform below rewrites input(...) into "await input(...)".
+async def input(prompt=""):
+    if prompt:
+        print(prompt, end="")
+    return await jsReadLine()
+
+builtins.input = input
+
+async def __tick():
+    await jsTick()
+
+class _Ticker(ast.NodeTransformer):
+    def _tick_stmt(self):
+        return ast.Expr(ast.Await(ast.Call(
+            func=ast.Name(id="__tick", ctx=ast.Load()), args=[], keywords=[])))
+    def _instrument(self, body):
+        out = []
+        for stmt in body:
+            out.append(self._tick_stmt())
+            out.append(self.visit(stmt))
+        return out
+    def visit_For(self, node):
+        node.body = self._instrument(node.body)
+        node.orelse = [self.visit(n) for n in node.orelse]
+        return node
+    def visit_While(self, node):
+        node.body = self._instrument(node.body)
+        node.orelse = [self.visit(n) for n in node.orelse]
+        return node
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id == "input":
+            return ast.Await(value=node)
+        return node
+    def visit_Await(self, node):
+        inner = node.value
+        if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
+                and inner.func.id == "input"):
+            inner.args = [self.visit(a) for a in inner.args]
+            inner.keywords = [self.visit(k) for k in inner.keywords]
+            return node
+        self.generic_visit(node)
+        return node
+
+def __make_async(source):
+    tree = ast.parse(source)
+    ticker = _Ticker()
+    new_body = []
+    for stmt in tree.body:
+        new_body.append(ticker._tick_stmt())
+        new_body.append(ticker.visit(stmt))
+    func = ast.AsyncFunctionDef(
+        name="__main",
+        args=ast.arguments(posonlyargs=[], args=[], vararg=None,
+                           kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+        body=new_body or [ast.Pass()],
+        decorator_list=[], returns=None, type_comment=None,
+    )
+    module = ast.Module(body=[func], type_ignores=[])
+    ast.fix_missing_locations(module)
+    return module
+
+async def __run_user_code(source):
+    g = {"__name__": "__main__", "__tick": __tick}
+    try:
+        module = __make_async(source)
+        code = compile(module, "<program>", "exec")
+        exec(code, g)
+        await g["__main"]()
+    except SyntaxError:
+        sys.stderr.write(traceback.format_exc())
+    except BaseException:
+        tb = traceback.format_exception(*sys.exc_info())
+        cleaned = [l for l in tb if "__main" not in l and "__run_user_code" not in l]
+        sys.stderr.write("".join(cleaned) or "".join(tb))
+`);
+
+  statusEl.textContent = "🐍 Python ready!";
+  setTimeout(() => (statusEl.style.display = "none"), 2000);
+
+  // Append a chunk to the current output box, turning \x01..\x02 regions into
+  // coloured "answer" spans. Handles markers split across chunks.
+  function appendOutput(text, cls) {
+    const out = currentOut;
+    if (!out) return;
+    let i = 0;
+    while (i < text.length) {
+      if (inAnswer) {
+        const end = text.indexOf("\x02", i);
+        const slice = end === -1 ? text.slice(i) : text.slice(i, end);
+        if (slice) addSpan(out, slice, "answer");
+        if (end === -1) { i = text.length; } else { inAnswer = false; i = end + 1; }
+      } else {
+        const start = text.indexOf("\x01", i);
+        const slice = start === -1 ? text.slice(i) : text.slice(i, start);
+        if (slice) addSpan(out, slice, cls);
+        if (start === -1) { i = text.length; } else { inAnswer = true; i = start + 1; }
+      }
+    }
+  }
+
+  function addSpan(out, text, cls) {
+    const span = document.createElement("span");
+    if (cls) span.className = cls;
+    span.textContent = text;
+    out.appendChild(span);
+  }
+
+  async function runCode(view, out, btn) {
+    const source = view.state.doc.toString();
+    // Reset and target this snippet's output box.
+    currentOut = out;
+    inAnswer = false; activeInput = null;
+    out.className = "output show";   // visible, no stale awaiting-input state
+    out.textContent = "";
+    btn.disabled = true;
+    const run = pyodide.globals.get("__run_user_code");
+    try {
+      await run(source);
+      if (!out.textContent) out.textContent = "(no output)";
+    } catch (e) {
+      addSpan(out, String(e && e.message || e), "error");
+    } finally {
+      run.destroy();
+      btn.disabled = false;
+      currentOut = null;
+    }
+  }
+
+  editors.forEach(({ view, btn, out }) => {
+    btn.disabled = false;
+    btn.addEventListener("click", () => runCode(view, out, btn));
+  });
+</script>
+</body>
+</html>

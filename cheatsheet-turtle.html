@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🐢 Turtle Cheatsheet</title>
+
+<!-- Apply the saved theme before paint to avoid a flash of the wrong colours. -->
+<script>
+  (function () {
+    var t = localStorage.getItem("theme") || "system";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+
+<style>
+  :root {
+    --bg: #f6f8fa;
+    --card: #ffffff;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --border: #d0d7de;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --border: #30363d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="system"], :root:not([data-theme]) {
+      --bg: #0d1117;
+      --card: #161b22;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #58a6ff;
+      --border: #30363d;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem 1rem 4rem;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 2.5rem; }
+  header h1 { font-size: 2.4rem; margin: 0 0 .3rem; }
+  header p { color: var(--muted); margin: 0; }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1.6rem;
+  }
+
+  h2 { margin: 0 0 .2rem; font-size: 1.5rem; }
+  .blurb { color: var(--muted); margin: 0 0 1rem; font-size: .95rem; }
+
+  /* Static, display-only code blocks (no editor, no running here). */
+  pre.code {
+    margin: .6rem 0 0;
+    background: #0d1117; color: #e6edf3;
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: .8rem 1rem; overflow: auto;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .9rem; line-height: 1.5;
+  }
+  :root:not([data-theme="dark"]) pre.code { background: #161b22; }
+
+  /* Inline command reference tables. */
+  table.ref { width: 100%; border-collapse: collapse; margin-top: .4rem; }
+  table.ref td {
+    border-top: 1px solid var(--border);
+    padding: .35rem .4rem; vertical-align: top; font-size: .92rem;
+  }
+  table.ref td.cmd {
+    width: 42%; white-space: nowrap;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    color: var(--accent);
+  }
+  table.ref tr:first-child td { border-top: none; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+  .tip {
+    border-left: 4px solid var(--accent);
+    background: rgba(88,166,255,.08);
+    padding: .5rem .9rem; border-radius: 6px;
+    margin-top: 1rem; font-size: .9rem;
+  }
+
+  footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 2rem; }
+
+  .home-emoji { color: inherit; text-decoration: none; cursor: pointer; }
+  .home-emoji:hover { filter: brightness(1.15); }
+
+  /* ---------- Corner menu (navigation + theme) ---------- */
+  .menu {
+    position: fixed; top: 12px; z-index: 50;
+    left: 0; right: 0;
+    margin: 0 auto;
+    width: calc(100% - 2rem); max-width: 820px;
+    display: flex; justify-content: flex-end;
+    pointer-events: none;
+  }
+  .menu > * { pointer-events: auto; }
+  .menu-btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    font-size: 1.2rem; line-height: 1; cursor: pointer;
+    width: 42px; height: 42px;
+  }
+  .menu-btn:hover { border-color: var(--accent); }
+  .menu-panel {
+    position: absolute; top: 48px; right: 0;
+    min-width: 180px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: .4rem;
+    box-shadow: 0 10px 24px rgba(0,0,0,.22);
+    display: none;
+  }
+  .menu.open .menu-panel { display: block; }
+  .menu-panel a {
+    display: block; text-decoration: none;
+    color: var(--text); font-size: .95rem;
+    padding: .5rem .6rem; border-radius: 8px;
+  }
+  .menu-panel a:hover { background: rgba(127,127,127,.14); }
+  .menu-panel a[aria-current="page"] {
+    color: var(--muted); font-weight: 600; pointer-events: none;
+  }
+  .menu-panel a[aria-current="page"]::after { content: " ●"; color: var(--accent); }
+  .menu-sep { height: 1px; background: var(--border); margin: .4rem .2rem; }
+  .menu-label { font-size: .75rem; color: var(--muted); padding: .2rem .6rem; }
+
+  .theme-switch { display: flex; gap: .15rem; padding: .2rem .4rem .3rem; }
+  .theme-switch button {
+    flex: 1; background: transparent; border: 1px solid var(--border);
+    cursor: pointer; color: var(--muted); font-size: .95rem; line-height: 1;
+    padding: .4rem; border-radius: 8px;
+  }
+  .theme-switch button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .theme-switch button:hover { color: var(--text); }
+  .theme-switch button[aria-pressed="true"]:hover { color: #fff; }
+
+  @media print {
+    body { background: #fff; color: #111; padding: 0; }
+    section { background: #fff; border: 1px solid #ccc; break-inside: avoid; }
+    pre.code { background: #f4f4f4; color: #111; border: 1px solid #ccc; }
+    .menu { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Corner menu: navigation + theme. -->
+<nav class="menu" id="menu">
+  <button class="menu-btn" id="menuBtn" aria-haspopup="true" aria-expanded="false" aria-label="Menu">☰</button>
+  <div class="menu-panel" role="menu">
+    <a href="index.html" role="menuitem">🏠 Home</a>
+    <a href="cheatsheet.html" role="menuitem">📖 Cheatsheets</a>
+    <a href="shell.html" role="menuitem">⌨️ Shell</a>
+    <a href="editor.html" role="menuitem">📝 Editor</a>
+    <div class="menu-sep"></div>
+    <div class="menu-label">Theme</div>
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button data-theme-value="light"  title="Light">☀️</button>
+      <button data-theme-value="dark"   title="Dark">🌙</button>
+      <button data-theme-value="system" title="Match system">💻</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header>
+    <h1><a href="index.html" class="home-emoji" title="Home" aria-label="Home">🐢</a> Turtle Cheatsheet</h1>
+    <p>Draw with Python's turtle. Copy any example into the <a href="editor.html">Editor</a> and press ▶ Run.</p>
+  </header>
+
+  <section>
+    <h2>🚀 Getting started</h2>
+    <p class="blurb">Import the turtle, then give it instructions. The turtle starts in the middle, facing right.</p>
+    <pre class="code">import turtle as tt
+
+tt.forward(100)   # walk forward 100 steps
+tt.left(90)       # turn left 90 degrees
+tt.forward(100)</pre>
+    <p class="blurb" style="margin-top:1rem">We import turtle as <code>tt</code> so commands are short to type: <code>tt.forward(...)</code>, <code>tt.left(...)</code>, and so on.</p>
+  </section>
+
+  <section>
+    <h2>🚶 Movement</h2>
+    <p class="blurb">Move and turn the turtle. Angles are in degrees.</p>
+    <table class="ref">
+      <tr><td class="cmd">forward(d)</td><td>Move forward by <code>d</code> steps.</td></tr>
+      <tr><td class="cmd">backward(d)</td><td>Move backward by <code>d</code> steps.</td></tr>
+      <tr><td class="cmd">right(a)</td><td>Turn right by <code>a</code> degrees.</td></tr>
+      <tr><td class="cmd">left(a)</td><td>Turn left by <code>a</code> degrees.</td></tr>
+      <tr><td class="cmd">goto(x, y)</td><td>Jump to position <code>(x, y)</code>. Centre is <code>(0, 0)</code>.</td></tr>
+      <tr><td class="cmd">setx(x)  ·  sety(y)</td><td>Set just the x or y position.</td></tr>
+      <tr><td class="cmd">setheading(a)</td><td>Face a direction: 0 = right, 90 = up.</td></tr>
+      <tr><td class="cmd">home()</td><td>Go back to the centre, facing right.</td></tr>
+      <tr><td class="cmd">circle(r)</td><td>Draw a circle of radius <code>r</code>.</td></tr>
+      <tr><td class="cmd">dot(size, color)</td><td>Draw a dot at the current spot.</td></tr>
+    </table>
+    <pre class="code"># Draw a square
+import turtle as tt
+for side in range(4):
+    tt.forward(100)
+    tt.right(90)</pre>
+  </section>
+
+  <section>
+    <h2>🖊️ Pen (drawing state)</h2>
+    <p class="blurb">Lift the pen to move without drawing; set colours and line width.</p>
+    <table class="ref">
+      <tr><td class="cmd">penup()</td><td>Lift the pen (move without drawing).</td></tr>
+      <tr><td class="cmd">pendown()</td><td>Put the pen down (draw again).</td></tr>
+      <tr><td class="cmd">pensize(w)</td><td>Set the line thickness.</td></tr>
+      <tr><td class="cmd">pencolor(c)</td><td>Set the line colour.</td></tr>
+      <tr><td class="cmd">fillcolor(c)</td><td>Set the fill colour.</td></tr>
+      <tr><td class="cmd">color(pen, fill)</td><td>Set pen (and optionally fill) colour.</td></tr>
+      <tr><td class="cmd">begin_fill()  /  end_fill()</td><td>Fill the shape drawn between these.</td></tr>
+    </table>
+    <pre class="code"># A filled red triangle
+import turtle as tt
+tt.color("black", "red")
+tt.begin_fill()
+for side in range(3):
+    tt.forward(120)
+    tt.left(120)
+tt.end_fill()</pre>
+    <p class="blurb" style="margin-top:1rem">Colours can be names (<code>"red"</code>), hex (<code>"#ff8800"</code>), or made with the helpers below.</p>
+    <pre class="code">import turtle as tt
+tt.pencolor("skyblue")
+tt.pensize(4)
+tt.penup()
+tt.goto(-50, 0)
+tt.pendown()
+tt.forward(100)</pre>
+  </section>
+
+  <section>
+    <h2>🎨 Colour helpers</h2>
+    <p class="blurb">Handy functions that return a colour you can pass to <code>pencolor</code>, <code>fillcolor</code>, <code>color</code> or <code>bgcolor</code>.</p>
+    <table class="ref">
+      <tr><td class="cmd">greyscale(n)</td><td><code>n</code> as a float <code>0..1</code> or an int <code>0..255</code> → a shade of grey.</td></tr>
+      <tr><td class="cmd">hsb(hue, sat, bright)</td><td>Hue <code>0..360</code>; saturation and brightness as float <code>0..1</code> or int <code>0..255</code>.</td></tr>
+    </table>
+    <pre class="code"># A rainbow spiral using hsb()
+import turtle as tt
+for i in range(60):
+    tt.pencolor(tt.hsb(i * 6, 1.0, 1.0))
+    tt.forward(i * 3)
+    tt.left(59)</pre>
+    <pre class="code"># Shades of grey
+import turtle as tt
+for i in range(10):
+    tt.pencolor(tt.greyscale(i / 9))   # 0.0 black .. 1.0 white
+    tt.forward(100)
+    tt.right(36)</pre>
+  </section>
+
+  <section>
+    <h2>🖼️ Appearance &amp; screen</h2>
+    <p class="blurb">Show or hide the turtle, change the background, and clear the drawing.</p>
+    <table class="ref">
+      <tr><td class="cmd">hideturtle()</td><td>Hide the turtle marker.</td></tr>
+      <tr><td class="cmd">showturtle()</td><td>Show the turtle marker.</td></tr>
+      <tr><td class="cmd">bgcolor(c)</td><td>Set the background colour.</td></tr>
+      <tr><td class="cmd">clear()</td><td>Erase the drawing (keep the turtle).</td></tr>
+      <tr><td class="cmd">reset()</td><td>Erase and start the turtle over.</td></tr>
+    </table>
+    <pre class="code">import turtle as tt
+tt.bgcolor("black")
+tt.pencolor("yellow")
+tt.hideturtle()
+for side in range(5):
+    tt.forward(150)
+    tt.right(144)   # a five-pointed star</pre>
+  </section>
+
+  <section>
+    <h2>❓ State queries</h2>
+    <p class="blurb">Ask the turtle where it is and which way it is facing.</p>
+    <table class="ref">
+      <tr><td class="cmd">position()</td><td>Current <code>(x, y)</code> position.</td></tr>
+      <tr><td class="cmd">xcor()  ·  ycor()</td><td>Current x or y position.</td></tr>
+      <tr><td class="cmd">heading()</td><td>Current direction in degrees.</td></tr>
+      <tr><td class="cmd">isdown()</td><td><code>True</code> if the pen is down.</td></tr>
+      <tr><td class="cmd">towards(x, y)</td><td>Angle from here towards <code>(x, y)</code>.</td></tr>
+      <tr><td class="cmd">distance(x, y)</td><td>Distance from here to <code>(x, y)</code>.</td></tr>
+    </table>
+    <pre class="code">import turtle as tt
+tt.forward(100)
+print("I am at", tt.position())
+print("facing", tt.heading(), "degrees")</pre>
+  </section>
+
+  <section>
+    <h2>📐 Grid &amp; axis</h2>
+    <p class="blurb">Draw a reference grid with the x and y axes — handy for planning coordinates.</p>
+    <table class="ref">
+      <tr><td class="cmd">showgrid(minor_ticks=10, major_ticks=100)</td><td>Faint lines every <code>minor_ticks</code>, bold lines every <code>major_ticks</code>, with the axes on top.</td></tr>
+    </table>
+    <pre class="code">import turtle as tt
+tt.showgrid()               # default: minor 10, major 100
+# tt.showgrid(25, 50)       # custom spacing
+
+tt.goto(100, 100)
+tt.goto(-100, 50)</pre>
+    <div class="tip">💡 Turtle coordinates start at <code>(0, 0)</code> in the centre, with x increasing to the right and y increasing upwards — just like maths graphs.</div>
+  </section>
+
+  <footer>© 2023-2027 Nicolas Beney. All rights reserved.</footer>
+</div>
+
+<!-- Menu + theme wiring. -->
+<script>
+  (function () {
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll(".theme-switch button");
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      localStorage.setItem("theme", theme);
+      buttons.forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.dataset.themeValue === theme));
+      });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () { applyTheme(b.dataset.themeValue); });
+    });
+    applyTheme(localStorage.getItem("theme") || "system");
+
+    var menu = document.getElementById("menu");
+    var menuBtn = document.getElementById("menuBtn");
+    if (menu && menuBtn) {
+      function setOpen(open) {
+        menu.classList.toggle("open", open);
+        menuBtn.setAttribute("aria-expanded", String(open));
+      }
+      menuBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setOpen(!menu.classList.contains("open"));
+      });
+      document.addEventListener("click", function (e) {
+        if (!menu.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") setOpen(false);
+      });
+    }
+  })();
+</script>
+</body>
+</html>
