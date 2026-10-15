@@ -301,6 +301,7 @@ for side in range(5):
       <tr><td class="cmd">xcor()  ·  ycor()</td><td>Current x or y position.</td></tr>
       <tr><td class="cmd">heading()</td><td>Current direction in degrees.</td></tr>
       <tr><td class="cmd">isdown()</td><td><code>True</code> if the pen is down.</td></tr>
+      <tr><td class="cmd">isvisible()</td><td><code>True</code> if the turtle is visible.</td></tr>
       <tr><td class="cmd">towards(x, y)</td><td>Angle from here towards <code>(x, y)</code>.</td></tr>
       <tr><td class="cmd">distance(x, y)</td><td>Distance from here to <code>(x, y)</code>.</td></tr>
     </table>
@@ -314,15 +315,62 @@ print("facing", tt.heading(), "degrees")</pre>
     <h2>📐 Grid &amp; axis</h2>
     <p class="blurb">Draw a reference grid with the x and y axes — handy for planning coordinates.</p>
     <table class="ref">
-      <tr><td class="cmd">showgrid(minor_ticks=10, major_ticks=100)</td><td>Faint lines every <code>minor_ticks</code>, bold lines every <code>major_ticks</code>, with the axes on top.</td></tr>
+      <tr><td class="cmd">showgrid()</td><td>Faint lines every 10, bold lines every 100, with the axes on top.</td></tr>
     </table>
     <pre class="code">import turtle as tt
-tt.showgrid()               # default: minor 10, major 100
-# tt.showgrid(25, 50)       # custom spacing
+tt.showgrid()  # default: minor 10, major 100
 
 tt.goto(100, 100)
 tt.goto(-100, 50)</pre>
     <div class="tip">💡 Turtle coordinates start at <code>(0, 0)</code> in the centre, with x increasing to the right and y increasing upwards — just like maths graphs.</div>
+  </section>
+
+  <section>
+    <h2>� Canvas size</h2>
+    <p class="blurb">Find out how big the drawing area is (in turtle steps), so your drawing can
+      scale to fit. The canvas is centred, so x goes from <code>-width/2</code> to <code>+width/2</code>.</p>
+    <table class="ref">
+      <tr><td class="cmd">canvas_width()</td><td>Width of the drawing area, in turtle steps.</td></tr>
+      <tr><td class="cmd">canvas_height()</td><td>Height of the drawing area, in turtle steps.</td></tr>
+    </table>
+    <pre class="code">import turtle as tt
+
+w = tt.canvas_width()
+h = tt.canvas_height()
+print("The canvas is", w, "x", h)
+
+# Draw a border just inside the edges.
+tt.penup()
+tt.goto(-w / 2 + 10, -h / 2 + 10)
+tt.pendown()
+for dist in (w - 20, h - 20, w - 20, h - 20):
+    tt.forward(dist)
+    tt.left(90)</pre>
+  </section>
+
+  <section>
+    <h2>�🐢🐢 Many turtles with <code>Turtle()</code></h2>
+    <p class="blurb">So far we used one turtle via <code>tt.forward(...)</code>. You can also make your
+      own turtle objects with <code>tt.Turtle()</code> and give each one a name. Every turtle
+      has all the same commands (forward, left, pencolor, …) — just call them on the turtle,
+      like <code>jerry.forward(100)</code>.</p>
+    <pre class="code">import turtle as tt
+
+# Make two independent turtles.
+tom = tt.Turtle()
+jerry = tt.Turtle()
+
+tom.pencolor("blue")
+jerry.pencolor("red")
+
+# They move on their own, on the same canvas.
+for step in range(4):
+    tom.forward(100)
+    tom.left(90)
+    jerry.forward(60)
+    jerry.right(90)</pre>
+    <div class="tip">💡 Use several turtles when you want more than one drawing to happen at once,
+      each with its own colour, position and heading.</div>
   </section>
 
   <footer>© 2023-2027 Nicolas Beney. All rights reserved.</footer>

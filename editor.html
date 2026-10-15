@@ -1296,6 +1296,16 @@ _MINOR_W = 1
 _MAJOR_W = 2
 _AXIS_W  = 3
 
+def canvas_width():
+    # Width of the drawing area in turtle units (x spans -w/2 .. +w/2).
+    _get_default()                 # ensure the canvas is shown and sized
+    return _W
+
+def canvas_height():
+    # Height of the drawing area in turtle units (y spans -h/2 .. +h/2).
+    _get_default()
+    return _H
+
 def _raw_line(x1, y1, x2, y2, color, width):
     # Draw a straight line given in TURTLE coordinates (converted to canvas).
     cx1, cy1 = _to_canvas(x1, y1)
@@ -1375,6 +1385,10 @@ _mod.showgrid = showgrid
 # Colour helpers, usable with pencolor()/fillcolor()/color().
 _mod.greyscale = greyscale
 _mod.hsb = hsb
+
+# Canvas size helpers (turtle units).
+_mod.canvas_width = canvas_width
+_mod.canvas_height = canvas_height
 
 sys.modules["turtle"] = _mod
 `);
