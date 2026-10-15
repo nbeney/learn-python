@@ -169,6 +169,14 @@
     gap: .8rem;
   }
 
+  /* The result pane stacks an optional chart box above the output box. */
+  .result-pane {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
   /* Editor fills the code pane. */
   .editor-wrap {
     flex: 1 1 auto;
@@ -192,16 +200,16 @@
     display: flex; flex-direction: column;   /* canvas can grow to fill */
   }
 
-  /* Side-by-side layout on wider screens: code on the left, output on the
-     right, each taking half the width and the full workspace height. */
+  /* Side-by-side layout on wider screens: code on the left, result pane
+     (chart + output) on the right, each taking half the width. */
   @media (min-width: 820px) {
     .workspace { flex-direction: row; align-items: stretch; }
     .code-pane { flex: 1 1 50%; min-width: 0; }
+    .result-pane { flex: 1 1 50%; min-width: 0; align-self: stretch; }
     .output {
-      flex: 1 1 50%;
-      min-width: 0;
-      max-height: none;         /* fill the column height instead of capping */
-      align-self: stretch;
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;         /* fill the remaining column height */
     }
   }
   .output .answer { color: #ffd866; font-weight: 600; }
@@ -216,6 +224,30 @@
     caret-color: #ffd866;
   }
   .output.awaiting-input { cursor: text; }
+
+  /* Chart from matplotlib (plt.show()) lives in its OWN box above the output.
+     The box is hidden until a chart is drawn. */
+  .chart-box {
+    display: none;
+    flex: 0 0 auto;
+    background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: .5rem; margin-bottom: .8rem;
+    text-align: center;
+  }
+  .chart-box.show { display: block; }
+  .chart-img {
+    display: block;
+    max-width: 100%;
+    max-height: 30vh;              /* keep the chart box a sensible height */
+    width: auto; height: auto;
+    object-fit: contain;
+    margin: 0 auto;
+    background: #fff; border-radius: 6px;
+  }
+  @media (min-width: 820px) {
+    .chart-img { max-height: 38vh; }
+  }
 
   /* Turtle drawing surface. Hidden until a program uses the turtle module. */
   .turtle-wrap { display: none; margin-bottom: .6rem; min-height: 0; }
@@ -317,7 +349,13 @@
       </div>
     </div>
 
-    <div class="output" id="output"><div class="turtle-wrap" id="turtleWrap"><div class="turtle-stack"><canvas id="turtleCanvas" width="400" height="400"></canvas><canvas id="turtleCursor" width="400" height="400"></canvas></div></div><span id="outText">The program output will show up here.</span></div>
+    <!-- Result pane: an optional chart box on top, then the output box. -->
+    <div class="result-pane">
+      <!-- Chart box: its own box, shown only when a program draws a chart. -->
+      <div class="chart-box" id="chartBox"><img id="chartImg" class="chart-img" alt="chart" /></div>
+
+      <div class="output" id="output"><div class="turtle-wrap" id="turtleWrap"><div class="turtle-stack"><canvas id="turtleCanvas" width="400" height="400"></canvas><canvas id="turtleCursor" width="400" height="400"></canvas></div></div><span id="outText">The program output will show up here.</span></div>
+    </div>
   </div>
 
   <div id="status">🐍 Loading Python…</div>
@@ -392,6 +430,8 @@
   const outTextEl = document.getElementById("outText");   // text output (keeps canvas intact)
   const turtleWrap = document.getElementById("turtleWrap");
   const turtleCanvas = document.getElementById("turtleCanvas");
+  const chartBox = document.getElementById("chartBox");    // matplotlib chart box
+  const chartImg = document.getElementById("chartImg");    // matplotlib output image
   const runBtn = document.getElementById("run");
 
   const fileSelect = document.getElementById("fileSelect");
@@ -1420,7 +1460,16 @@ sys.modules["turtle"] = _mod
     activeInput = null;
     inAnswer = false;
     turtleReset();                           // hide + wipe the turtle canvas
+    chartBox.classList.remove("show");       // hide any previous chart box
+    chartImg.removeAttribute("src");
   }
+
+  // jsChart(dataUrl): called by matplotlib's show() with a PNG data URL. We
+  // display it in the separate chart box above the output.
+  globalThis.jsChart = (dataUrl) => {
+    chartImg.src = dataUrl;
+    chartBox.classList.add("show");
+  };
 
   // Append a chunk, turning \x01..\x02 regions into coloured "answer" spans.
   function appendOutput(text, cls) {
@@ -1454,6 +1503,47 @@ sys.modules["turtle"] = _mod
     return new Promise((resolve) => requestAnimationFrame(() => resolve()));
   }
 
+  // ---------- Lazy matplotlib ----------
+  // matplotlib is a multi-MB download, so we only fetch it the first time a
+  // program actually uses it, then configure a non-interactive backend and
+  // make plt.show() render the figure as a PNG into the output area.
+  let matplotlibReady = false;
+  function usesMatplotlib(src) {
+    return /\bmatplotlib\b/.test(src) || /\bpylab\b/.test(src);
+  }
+  async function ensureMatplotlib() {
+    if (matplotlibReady) return;
+    const prev = statusEl.textContent;
+    statusEl.style.display = "";
+    statusEl.textContent = "📊 Loading charts… (one-time)";
+    await nextFrame();
+    await pyodide.loadPackage("matplotlib");
+    // Configure once: use the Agg backend and send figures to JS as PNGs.
+    pyodide.runPython(`
+import matplotlib
+matplotlib.use("AGG")              # render to an in-memory bitmap, no GUI
+import matplotlib.pyplot as _plt
+import io, base64
+from js import jsChart
+
+def _show(*args, **kwargs):
+    # Render every open figure to a PNG data URL and hand it to the page.
+    for num in _plt.get_fignums():
+        fig = _plt.figure(num)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+        buf.seek(0)
+        data = base64.b64encode(buf.read()).decode("ascii")
+        jsChart("data:image/png;base64," + data)
+    _plt.close("all")              # start fresh for the next run
+
+_plt.show = _show
+`);
+    matplotlibReady = true;
+    statusEl.textContent = prev;
+    statusEl.style.display = "none";
+  }
+
   async function runCode() {
     const source = view.state.doc.toString();
     runBtn.disabled = true;
@@ -1461,13 +1551,26 @@ sys.modules["turtle"] = _mod
     // Reset the turtle module's default-turtle singleton so a program that
     // uses turtle re-reveals the canvas (clearOutput hides it every run).
     pyodide.runPython("import sys\nif 'turtle' in sys.modules: sys.modules['turtle']._reset()");
+    // Lazily fetch matplotlib the first time a program needs it.
+    if (usesMatplotlib(source)) {
+      try {
+        await ensureMatplotlib();
+      } catch (e) {
+        appendOutput("Could not load charts: " + String(e && e.message || e), "error");
+        runBtn.disabled = false;
+        return;
+      }
+    }
     await nextFrame();               // let the clear paint before we start
     const run = pyodide.globals.get("__run_user_code");
     try {
       // Run the student's code through the async runner, which inserts
       // `await __tick()` between statements so output paints incrementally.
       await run(source);
-      if (!outTextEl.textContent) {
+      // The chart has its own box, so a chart alone still counts as "no
+      // output" in the text box. The turtle draws inside the output box, so
+      // it does suppress the placeholder.
+      if (!outTextEl.textContent && !turtleWrap.classList.contains("show")) {
         appendOutput("(no output)", null);
       }
     } catch (e) {

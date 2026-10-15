@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>📊 Charts Cheatsheet</title>
+
+<!-- Apply the saved theme before paint to avoid a flash of the wrong colours. -->
+<script>
+  (function () {
+    var t = localStorage.getItem("theme") || "system";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+
+<style>
+  :root {
+    --bg: #f6f8fa;
+    --card: #ffffff;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --border: #d0d7de;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --border: #30363d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="system"], :root:not([data-theme]) {
+      --bg: #0d1117;
+      --card: #161b22;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #58a6ff;
+      --border: #30363d;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem 1rem 4rem;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 2.5rem; }
+  header h1 { font-size: 2.4rem; margin: 0 0 .3rem; }
+  header p { color: var(--muted); margin: 0; }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1.6rem;
+  }
+
+  h2 { margin: 0 0 .2rem; font-size: 1.5rem; }
+  h3 { margin: 1.1rem 0 .2rem; font-size: 1.1rem; }
+  .blurb { color: var(--muted); margin: 0 0 1rem; font-size: .95rem; }
+
+  /* Static, display-only code blocks (no editor, no running here). */
+  pre.code {
+    margin: .6rem 0 0;
+    background: #0d1117; color: #e6edf3;
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: .8rem 1rem; overflow: auto;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .9rem; line-height: 1.5;
+  }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+  .tip {
+    border-left: 4px solid var(--accent);
+    background: rgba(88,166,255,.08);
+    padding: .5rem .9rem; border-radius: 6px;
+    margin-top: 1rem; font-size: .9rem;
+  }
+
+  footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 2rem; }
+
+  .home-emoji { color: inherit; text-decoration: none; cursor: pointer; }
+  .home-emoji:hover { filter: brightness(1.15); }
+
+  /* ---------- Corner menu (navigation + theme) ---------- */
+  .menu {
+    position: fixed; top: 12px; z-index: 50;
+    left: 0; right: 0;
+    margin: 0 auto;
+    width: calc(100% - 2rem); max-width: 820px;
+    display: flex; justify-content: flex-end;
+    pointer-events: none;
+  }
+  .menu > * { pointer-events: auto; }
+  .menu-btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    font-size: 1.2rem; line-height: 1; cursor: pointer;
+    width: 42px; height: 42px;
+  }
+  .menu-btn:hover { border-color: var(--accent); }
+  .menu-panel {
+    position: absolute; top: 48px; right: 0;
+    min-width: 180px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: .4rem;
+    box-shadow: 0 10px 24px rgba(0,0,0,.22);
+    display: none;
+  }
+  .menu.open .menu-panel { display: block; }
+  .menu-panel a {
+    display: block; text-decoration: none;
+    color: var(--text); font-size: .95rem;
+    padding: .5rem .6rem; border-radius: 8px;
+  }
+  .menu-panel a:hover { background: rgba(127,127,127,.14); }
+  .menu-panel a[aria-current="page"] {
+    color: var(--muted); font-weight: 600; pointer-events: none;
+  }
+  .menu-panel a[aria-current="page"]::after { content: " ●"; color: var(--accent); }
+  .menu-sep { height: 1px; background: var(--border); margin: .4rem .2rem; }
+  .menu-label { font-size: .75rem; color: var(--muted); padding: .2rem .6rem; }
+
+  .theme-switch { display: flex; gap: .15rem; padding: .2rem .4rem .3rem; }
+  .theme-switch button {
+    flex: 1; background: transparent; border: 1px solid var(--border);
+    cursor: pointer; color: var(--muted); font-size: .95rem; line-height: 1;
+    padding: .4rem; border-radius: 8px;
+  }
+  .theme-switch button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .theme-switch button:hover { color: var(--text); }
+  .theme-switch button[aria-pressed="true"]:hover { color: #fff; }
+
+  @media print {
+    body { background: #fff; color: #111; padding: 0; }
+    section { background: #fff; border: 1px solid #ccc; break-inside: avoid; }
+    pre.code { background: #f4f4f4; color: #111; border: 1px solid #ccc; }
+    .menu { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Corner menu: navigation + theme. -->
+<nav class="menu" id="menu">
+  <button class="menu-btn" id="menuBtn" aria-haspopup="true" aria-expanded="false" aria-label="Menu">☰</button>
+  <div class="menu-panel" role="menu">
+    <a href="index.html" role="menuitem">🏠 Home</a>
+    <a href="cheatsheet.html" role="menuitem">📖 Cheatsheets</a>
+    <a href="shell.html" role="menuitem">⌨️ Shell</a>
+    <a href="editor.html" role="menuitem">📝 Editor</a>
+    <div class="menu-sep"></div>
+    <div class="menu-label">Theme</div>
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button data-theme-value="light"  title="Light">☀️</button>
+      <button data-theme-value="dark"   title="Dark">🌙</button>
+      <button data-theme-value="system" title="Match system">💻</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header>
+    <h1><a href="index.html" class="home-emoji" title="Home" aria-label="Home">📊</a> Charts Cheatsheet</h1>
+    <p>Make charts with matplotlib. Copy any example into the <a href="editor.html">Editor</a> and press ▶ Run.</p>
+  </header>
+
+  <section>
+    <h2>🚀 Getting started</h2>
+    <p class="blurb">Import matplotlib's pyplot (we call it <code>plt</code>), build your chart, then
+      call <code>plt.show()</code> to display it. The first chart takes a moment while the charts
+      library loads — after that it is quick.</p>
+    <pre class="code">import matplotlib.pyplot as plt
+
+plt.plot([1, 2, 3, 4], [1, 4, 9, 16])
+plt.title("Squares")
+plt.show()</pre>
+    <div class="tip">💡 Nothing appears until you call <code>plt.show()</code>. You can set a title and
+      axis labels with <code>plt.title(...)</code>, <code>plt.xlabel(...)</code> and <code>plt.ylabel(...)</code>.</div>
+  </section>
+
+  <section>
+    <h2>📈 Line charts</h2>
+
+    <h3>Single line</h3>
+    <p class="blurb">Give <code>plot</code> the x values and the y values.</p>
+    <pre class="code">import matplotlib.pyplot as plt
+
+days = [1, 2, 3, 4, 5]
+temp = [12, 15, 14, 18, 20]
+
+plt.plot(days, temp)
+plt.title("Temperature this week")
+plt.xlabel("Day")
+plt.ylabel("°C")
+plt.show()</pre>
+
+    <h3>Multiple lines</h3>
+    <p class="blurb">Call <code>plot</code> again for each line, give each a <code>label</code>,
+      then add a <code>legend</code> so people know which is which.</p>
+    <pre class="code">import matplotlib.pyplot as plt
+
+days = [1, 2, 3, 4, 5]
+london = [12, 15, 14, 18, 20]
+paris  = [14, 16, 16, 19, 22]
+
+plt.plot(days, london, label="London")
+plt.plot(days, paris, label="Paris", marker="o")
+plt.title("Temperature")
+plt.xlabel("Day")
+plt.ylabel("°C")
+plt.legend()
+plt.show()</pre>
+    <div class="tip">💡 Try styles like <code>marker="o"</code> (dots), <code>linestyle="--"</code>
+      (dashes) or a colour such as <code>color="red"</code>.</div>
+  </section>
+
+  <section>
+    <h2>📊 Bar charts</h2>
+
+    <h3>Vertical bars</h3>
+    <p class="blurb">Use <code>bar</code> with labels and their values.</p>
+    <pre class="code">import matplotlib.pyplot as plt
+
+fruits = ["apples", "bananas", "cherries"]
+counts = [12, 19, 7]
+
+plt.bar(fruits, counts, color="orange")
+plt.title("Fruit basket")
+plt.ylabel("How many")
+plt.show()</pre>
+
+    <h3>Horizontal bars</h3>
+    <p class="blurb">Use <code>barh</code> for horizontal bars — handy when the labels are long.</p>
+    <pre class="code">import matplotlib.pyplot as plt
+
+animals = ["cat", "dog", "rabbit", "hamster"]
+votes   = [8, 11, 5, 3]
+
+plt.barh(animals, votes, color="seagreen")
+plt.title("Favourite pet")
+plt.xlabel("Votes")
+plt.show()</pre>
+  </section>
+
+  <section>
+    <h2>🥧 Pie charts</h2>
+    <p class="blurb">Give <code>pie</code> the slice sizes and some labels. <code>autopct</code>
+      shows the percentage on each slice.</p>
+    <pre class="code">import matplotlib.pyplot as plt
+
+sizes  = [40, 25, 20, 15]
+labels = ["Red", "Blue", "Green", "Yellow"]
+
+plt.pie(sizes, labels=labels, autopct="%1.0f%%")
+plt.title("Favourite colours")
+plt.show()</pre>
+    <div class="tip">💡 Pull a slice out to highlight it with
+      <code>explode=[0.1, 0, 0, 0]</code> (one value per slice).</div>
+  </section>
+
+  <section>
+    <h2>🧊 3D charts</h2>
+    <p class="blurb">For 3D you add a 3D axes with <code>projection="3d"</code>, then draw on it.
+      You still finish with <code>plt.show()</code>.</p>
+
+    <h3>3D line</h3>
+    <pre class="code">import matplotlib.pyplot as plt
+
+ax = plt.axes(projection="3d")
+
+t = range(0, 100)
+x = [i / 10 for i in t]
+y = [i / 15 for i in t]
+z = [i / 20 for i in t]
+
+ax.plot(x, y, z)
+ax.set_title("A 3D line")
+plt.show()</pre>
+
+    <h3>3D scatter</h3>
+    <pre class="code">import matplotlib.pyplot as plt
+import random
+
+ax = plt.axes(projection="3d")
+
+xs = [random.randint(0, 10) for _ in range(40)]
+ys = [random.randint(0, 10) for _ in range(40)]
+zs = [random.randint(0, 10) for _ in range(40)]
+
+ax.scatter(xs, ys, zs, color="purple")
+ax.set_title("Points in space")
+plt.show()</pre>
+
+    <h3>3D bars</h3>
+    <p class="blurb">Bars standing on a floor, each with a position <code>(x, y)</code> and a height.
+      <code>bar3d</code> takes the corner, the width/depth, and the height of each bar.</p>
+    <pre class="code">import matplotlib.pyplot as plt
+
+ax = plt.axes(projection="3d")
+
+xs = [0, 1, 2, 3]       # left-right position
+ys = [0, 1, 0, 1]       # front-back position
+heights = [3, 5, 2, 6]  # how tall each bar is
+
+ax.bar3d(xs, ys, [0, 0, 0, 0], 0.6, 0.6, heights, color="teal")
+ax.set_title("3D bars")
+plt.show()</pre>
+    <div class="tip">💡 3D charts load an extra piece of matplotlib the first time, so give it a moment.</div>
+  </section>
+
+  <section>
+    <h2>📚 Want to go further?</h2>
+    <p class="blurb">These examples only scratch the surface. matplotlib can do a huge amount more —
+      styles, colours, subplots, annotations and many chart types. Explore the official site and
+      its gallery of examples:</p>
+    <p><a href="https://matplotlib.org/" target="_blank" rel="noopener">https://matplotlib.org/</a></p>
+  </section>
+
+  <footer>© 2023-2027 Nicolas Beney. All rights reserved.</footer>
+</div>
+
+<!-- Menu + theme wiring. -->
+<script>
+  (function () {
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll(".theme-switch button");
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      localStorage.setItem("theme", theme);
+      buttons.forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.dataset.themeValue === theme));
+      });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () { applyTheme(b.dataset.themeValue); });
+    });
+    applyTheme(localStorage.getItem("theme") || "system");
+
+    var menu = document.getElementById("menu");
+    var menuBtn = document.getElementById("menuBtn");
+    if (menu && menuBtn) {
+      function setOpen(open) {
+        menu.classList.toggle("open", open);
+        menuBtn.setAttribute("aria-expanded", String(open));
+      }
+      menuBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setOpen(!menu.classList.contains("open"));
+      });
+      document.addEventListener("click", function (e) {
+        if (!menu.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") setOpen(false);
+      });
+    }
+  })();
+</script>
+</body>
+</html>
