@@ -77,4 +77,41 @@ print(a, "-", b, "=", a - b)
 print(a, "x", b, "=", a * b)
 `,
   },
+  {
+    name: "🔤 NATO spelling (speaks)",
+    code: `# Type some text, then spell it out loud using the NATO alphabet.
+import pyttsx3
+
+# The NATO phonetic word for each letter and digit.
+NATO = {
+    "A": "Alpha",   "B": "Bravo",    "C": "Charlie", "D": "Delta",
+    "E": "Echo",    "F": "Foxtrot",  "G": "Golf",    "H": "Hotel",
+    "I": "India",   "J": "Juliett",  "K": "Kilo",    "L": "Lima",
+    "M": "Mike",    "N": "November",  "O": "Oscar",   "P": "Papa",
+    "Q": "Quebec",  "R": "Romeo",    "S": "Sierra",  "T": "Tango",
+    "U": "Uniform", "V": "Victor",   "W": "Whiskey", "X": "X-ray",
+    "Y": "Yankee",  "Z": "Zulu",
+    "0": "Zero",    "1": "One",      "2": "Two",     "3": "Tree",
+    "4": "Fower",   "5": "Five",     "6": "Six",     "7": "Seven",
+    "8": "Eight",   "9": "Nine",
+}
+
+engine = pyttsx3.init()
+
+text = input("Type something to spell out: ")
+
+engine.say(f"Using the NATO phonetic alphabet, {text} spells out as:")
+engine.runAndWait()
+
+for char in text:
+    key = char.upper()
+    if key in NATO:                    # a letter or a digit we know
+        word = NATO[key]
+        print(char, "->", word)
+        engine.say(word)
+        engine.runAndWait()
+    else:
+        print(char)                    # spaces, punctuation, etc.
+`,
+  },
 ];
