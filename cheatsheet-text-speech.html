@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🔊 Text-to-Speech Cheatsheet</title>
+
+<!-- Apply the saved theme before paint to avoid a flash of the wrong colours. -->
+<script>
+  (function () {
+    var t = localStorage.getItem("theme") || "system";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+
+<style>
+  :root {
+    --bg: #f6f8fa;
+    --card: #ffffff;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --border: #d0d7de;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --border: #30363d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="system"], :root:not([data-theme]) {
+      --bg: #0d1117;
+      --card: #161b22;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #58a6ff;
+      --border: #30363d;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem 1rem 4rem;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 2.5rem; }
+  header h1 { font-size: 2.4rem; margin: 0 0 .3rem; }
+  header p { color: var(--muted); margin: 0; }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1.6rem;
+  }
+
+  h2 { margin: 0 0 .2rem; font-size: 1.5rem; }
+  .blurb { color: var(--muted); margin: 0 0 1rem; font-size: .95rem; }
+
+  /* Static, display-only code blocks (no editor, no running here). */
+  pre.code {
+    margin: .6rem 0 0;
+    background: #0d1117; color: #e6edf3;
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: .8rem 1rem; overflow: auto;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .9rem; line-height: 1.5;
+  }
+  :root:not([data-theme="dark"]) pre.code { background: #161b22; }
+
+  /* Inline command reference tables. */
+  table.ref { width: 100%; border-collapse: collapse; margin-top: .4rem; }
+  table.ref td {
+    border-top: 1px solid var(--border);
+    padding: .35rem .4rem; vertical-align: top; font-size: .92rem;
+  }
+  table.ref td.cmd {
+    width: 42%; white-space: nowrap;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    color: var(--accent);
+  }
+  table.ref tr:first-child td { border-top: none; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+  .tip {
+    border-left: 4px solid var(--accent);
+    background: rgba(88,166,255,.08);
+    padding: .5rem .9rem; border-radius: 6px;
+    margin-top: 1rem; font-size: .9rem;
+  }
+
+  footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 2rem; }
+
+  .home-emoji { color: inherit; text-decoration: none; cursor: pointer; }
+  .home-emoji:hover { filter: brightness(1.15); }
+
+  /* ---------- Corner menu (navigation + theme) ---------- */
+  .menu {
+    position: fixed; top: 12px; z-index: 50;
+    left: 0; right: 0;
+    margin: 0 auto;
+    width: calc(100% - 2rem); max-width: 820px;
+    display: flex; justify-content: flex-end;
+    pointer-events: none;
+  }
+  .menu > * { pointer-events: auto; }
+  .menu-btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    font-size: 1.2rem; line-height: 1; cursor: pointer;
+    width: 42px; height: 42px;
+  }
+  .menu-btn:hover { border-color: var(--accent); }
+  .menu-panel {
+    position: absolute; top: 48px; right: 0;
+    min-width: 180px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: .4rem;
+    box-shadow: 0 10px 24px rgba(0,0,0,.22);
+    display: none;
+  }
+  .menu.open .menu-panel { display: block; }
+  .menu-panel a {
+    display: block; text-decoration: none;
+    color: var(--text); font-size: .95rem;
+    padding: .5rem .6rem; border-radius: 8px;
+  }
+  .menu-panel a:hover { background: rgba(127,127,127,.14); }
+  .menu-panel a[aria-current="page"] {
+    color: var(--muted); font-weight: 600; pointer-events: none;
+  }
+  .menu-panel a[aria-current="page"]::after { content: " ●"; color: var(--accent); }
+  .menu-sep { height: 1px; background: var(--border); margin: .4rem .2rem; }
+  .menu-label { font-size: .75rem; color: var(--muted); padding: .2rem .6rem; }
+
+  .theme-switch { display: flex; gap: .15rem; padding: .2rem .4rem .3rem; }
+  .theme-switch button {
+    flex: 1; background: transparent; border: 1px solid var(--border);
+    cursor: pointer; color: var(--muted); font-size: .95rem; line-height: 1;
+    padding: .4rem; border-radius: 8px;
+  }
+  .theme-switch button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .theme-switch button:hover { color: var(--text); }
+  .theme-switch button[aria-pressed="true"]:hover { color: #fff; }
+
+  @media print {
+    body { background: #fff; color: #111; padding: 0; }
+    section { background: #fff; border: 1px solid #ccc; break-inside: avoid; }
+    pre.code { background: #f4f4f4; color: #111; border: 1px solid #ccc; }
+    .menu { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Corner menu: navigation + theme. -->
+<nav class="menu" id="menu">
+  <button class="menu-btn" id="menuBtn" aria-haspopup="true" aria-expanded="false" aria-label="Menu">☰</button>
+  <div class="menu-panel" role="menu">
+    <a href="index.html" role="menuitem">🏠 Home</a>
+    <a href="cheatsheet.html" role="menuitem">📖 Cheatsheets</a>
+    <a href="shell.html" role="menuitem">⌨️ Shell</a>
+    <a href="editor.html" role="menuitem">📝 Editor</a>
+    <div class="menu-sep"></div>
+    <div class="menu-label">Theme</div>
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button data-theme-value="light"  title="Light">☀️</button>
+      <button data-theme-value="dark"   title="Dark">🌙</button>
+      <button data-theme-value="system" title="Match system">💻</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header>
+    <h1><a href="index.html" class="home-emoji" title="Home" aria-label="Home">🔊</a> Text-to-Speech Cheatsheet</h1>
+    <p>Make Python talk out loud with <code>pyttsx3</code>. Copy any example into the <a href="editor.html">Editor</a> and press ▶ Run.</p>
+  </header>
+
+  <section>
+    <h2>🚀 Getting started</h2>
+    <p class="blurb">Import <code>pyttsx3</code>, start the speech engine, give it something to say, then run it.</p>
+    <pre class="code">import pyttsx3
+
+engine = pyttsx3.init()      # start the speech engine
+engine.say("Hello there!")   # queue some words
+engine.runAndWait()          # speak them out loud</pre>
+    <p class="blurb" style="margin-top:1rem"><code>say(...)</code> only lines the words up — nothing is spoken until
+      you call <code>runAndWait()</code>. Turn your sound on! 🔈</p>
+  </section>
+
+  <section>
+    <h2>🗣️ Speaking</h2>
+    <p class="blurb">Queue up one or more phrases, then speak them all with a single <code>runAndWait()</code>.</p>
+    <table class="ref">
+      <tr><td class="cmd">init()</td><td>Start the engine. Call once, keep the result in a variable.</td></tr>
+      <tr><td class="cmd">say(text)</td><td>Add some words to the queue (does not speak yet).</td></tr>
+      <tr><td class="cmd">runAndWait()</td><td>Speak everything in the queue, and wait until it finishes.</td></tr>
+      <tr><td class="cmd">stop()</td><td>Stop speaking and empty the queue.</td></tr>
+    </table>
+    <pre class="code">import pyttsx3
+
+engine = pyttsx3.init()
+
+# Queue several lines, then speak them in order.
+engine.say("Ready?")
+engine.say("Steady?")
+engine.say("Go!")
+engine.runAndWait()</pre>
+    <div class="tip">💡 You can mix speech with <code>input()</code> and <code>print()</code> to build a talking quiz.</div>
+  </section>
+
+  <section>
+    <h2>🎛️ Changing the voice</h2>
+    <p class="blurb">Adjust how fast and how loud the voice is with <code>setProperty(...)</code>.</p>
+    <table class="ref">
+      <tr><td class="cmd">setProperty("rate", n)</td><td>Speaking speed in words per minute (~200 is normal). Smaller = slower.</td></tr>
+      <tr><td class="cmd">setProperty("volume", v)</td><td>Loudness from <code>0.0</code> (silent) to <code>1.0</code> (full).</td></tr>
+      <tr><td class="cmd">getProperty("rate")</td><td>Read the current speed back.</td></tr>
+      <tr><td class="cmd">getProperty("volume")</td><td>Read the current loudness back.</td></tr>
+    </table>
+    <pre class="code">import pyttsx3
+
+engine = pyttsx3.init()
+engine.setProperty("rate", 120)     # slow and clear
+engine.setProperty("volume", 0.9)   # nice and loud
+engine.say("I am speaking slowly and loudly.")
+engine.runAndWait()</pre>
+  </section>
+
+  <section>
+    <h2>🧑‍🤝‍🧑 Picking a different voice</h2>
+    <p class="blurb">The computer usually has more than one voice. List them, then choose one by its <code>id</code>.</p>
+    <table class="ref">
+      <tr><td class="cmd">getProperty("voices")</td><td>A list of the available voices. Each one has <code>.id</code> and <code>.name</code>.</td></tr>
+      <tr><td class="cmd">setProperty("voice", id)</td><td>Switch to the voice with that <code>id</code>.</td></tr>
+    </table>
+    <pre class="code">import pyttsx3
+
+engine = pyttsx3.init()
+
+# Keep only the English voices.
+voices = engine.getProperty("voices")
+english = [v for v in voices if "English" in v.name]
+
+# Print each voice id, then say the same thing with that voice.
+for v in english:
+    print(v.id, v.name)
+    engine.setProperty("voice", v.id)
+    engine.say("Do I sound different now?")
+    engine.runAndWait()</pre>
+    <div class="tip">💡 Which voices you get depends on the computer and browser, so the list can look
+      different from one machine to the next.</div>
+  </section>
+
+  <section>
+    <h2>🎮 Put it together</h2>
+    <p class="blurb">A tiny talking greeter that asks your name and says hello.</p>
+    <pre class="code">import pyttsx3
+
+engine = pyttsx3.init()
+engine.setProperty("rate", 170)
+
+name = input("What is your name? ")
+
+engine.say("Hello " + name + "! Nice to meet you.")
+engine.runAndWait()
+
+print("Done! 👋")</pre>
+  </section>
+
+  <section>
+    <h2>📦 The real <code>pyttsx3</code> &amp; limits of this version</h2>
+    <p class="blurb">In this editor, <code>pyttsx3</code> is a small stand-in built on the browser's own
+      speech engine, so it works online with nothing to install. The examples above use the same
+      commands as the real library, so your code should run elsewhere too.</p>
+
+    <p class="blurb" style="margin-top:1rem"><strong>Using it outside this editor.</strong> On a normal
+      computer (for example in Thonny or IDLE), install the official library first:</p>
+    <pre class="code">pip install pyttsx3</pre>
+    <p class="blurb" style="margin-top:1rem">The official project lives at
+      <a href="https://pypi.org/project/pyttsx3/">pypi.org/project/pyttsx3</a> with docs at
+      <a href="https://pyttsx3.readthedocs.io/">pyttsx3.readthedocs.io</a>. It is fully offline
+      and drives the operating system's speech engine (SAPI5 on Windows, NSSpeechSynthesizer on
+      macOS, espeak on Linux).</p>
+
+    <p class="blurb" style="margin-top:1rem"><strong>What this editor's version does not do.</strong>
+      It only copies the most common commands, so a few things from the real library are missing:</p>
+    <table class="ref">
+      <tr><td class="cmd">Voices differ</td><td>Voices come from your browser and operating system, so the
+        list from <code>getProperty("voices")</code> and how each one sounds will vary by machine.
+        A machine with no installed voice stays silent.</td></tr>
+      <tr><td class="cmd">rate is approximate</td><td>The browser uses a speed multiplier, not exact words
+        per minute, so <code>setProperty("rate", ...)</code> is only a close match to the real thing.</td></tr>
+      <tr><td class="cmd">No saving to a file</td><td><code>save_to_file(...)</code> (writing speech to an
+        audio file) is not supported here. It works in the official library.</td></tr>
+      <tr><td class="cmd">No events / callbacks</td><td>Event hooks like <code>connect(...)</code> for
+        "started-word" or "finished-utterance" are not available.</td></tr>
+      <tr><td class="cmd">No startLoop / pyttsx3 engine loop</td><td><code>startLoop()</code>,
+        <code>endLoop()</code> and <code>iterate()</code> are not implemented.</td></tr>
+      <tr><td class="cmd">No voice details</td><td>Extra voice info like <code>languages</code>,
+        <code>gender</code> and <code>age</code> is empty here, even though the attributes exist.</td></tr>
+      <tr><td class="cmd">Needs the internet (here)</td><td>This editor version relies on the browser; the
+        real <code>pyttsx3</code> on your own computer works fully offline.</td></tr>
+    </table>
+    <div class="tip">💡 Stick to <code>init</code>, <code>say</code>, <code>runAndWait</code>, <code>stop</code>,
+      <code>setProperty</code> and <code>getProperty</code> and your program will behave the same here and
+      with the official library.</div>
+  </section>
+
+  <footer>© 2023-2027 Nicolas Beney. All rights reserved.</footer>
+</div>
+
+<!-- Menu + theme wiring. -->
+<script>
+  (function () {
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll(".theme-switch button");
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      localStorage.setItem("theme", theme);
+      buttons.forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.dataset.themeValue === theme));
+      });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () { applyTheme(b.dataset.themeValue); });
+    });
+    applyTheme(localStorage.getItem("theme") || "system");
+
+    var menu = document.getElementById("menu");
+    var menuBtn = document.getElementById("menuBtn");
+    if (menu && menuBtn) {
+      function setOpen(open) {
+        menu.classList.toggle("open", open);
+        menuBtn.setAttribute("aria-expanded", String(open));
+      }
+      menuBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setOpen(!menu.classList.contains("open"));
+      });
+      document.addEventListener("click", function (e) {
+        if (!menu.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") setOpen(false);
+      });
+    }
+  })();
+</script>
+</body>
+</html>

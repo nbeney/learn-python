@@ -915,6 +915,77 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     tctx.fill();
   };
 
+  // ---------- Text-to-speech bridge (Web Speech API) ----------
+  // Backs a small `pyttsx3` shim on the Python side. Uses the browser's
+  // built-in speechSynthesis, so there is nothing to download and it works
+  // offline wherever the OS/browser ships a voice. Student code written here
+  // (import pyttsx3; engine.say(...); engine.runAndWait()) runs unchanged in
+  // Thonny after `pip install pyttsx3`.
+  const synth = window.speechSynthesis || null;
+
+  // getVoices() often populates asynchronously; resolve once voices appear
+  // (or after a short timeout so we never hang on engines that stay empty).
+  let voicesReady = null;
+  function ensureVoices() {
+    if (voicesReady) return voicesReady;
+    voicesReady = new Promise((resolve) => {
+      if (!synth) { resolve([]); return; }
+      const have = synth.getVoices();
+      if (have && have.length) { resolve(have); return; }
+      let done = false;
+      const finish = () => { if (done) return; done = true; resolve(synth.getVoices()); };
+      synth.addEventListener("voiceschanged", finish, { once: true });
+      setTimeout(finish, 1500);   // fall back if the event never fires
+    });
+    return voicesReady;
+  }
+
+  // Warm up voices (called lazily on first use, like ensureMatplotlib()).
+  globalThis.jsSpeechWarm = () => ensureVoices();
+
+  // Queue one utterance and return immediately, like pyttsx3's say().
+  globalThis.jsSpeechSpeak = (text, rate, volume, voiceURI) => {
+    if (!synth || !text) return;
+    const u = new SpeechSynthesisUtterance(String(text));
+    // pyttsx3 rate is words-per-minute (~200 default). Web Speech rate is a
+    // multiplier (1 = normal). Map wpm -> multiplier around a 200 baseline.
+    if (rate != null && !Number.isNaN(rate)) {
+      u.rate = Math.max(0.1, Math.min(10, Number(rate) / 200));
+    }
+    if (volume != null && !Number.isNaN(volume)) {
+      u.volume = Math.max(0, Math.min(1, Number(volume)));
+    }
+    if (voiceURI) {
+      const match = synth.getVoices().find((v) => v.voiceURI === voiceURI || v.name === voiceURI);
+      if (match) u.voice = match;
+    }
+    synth.speak(u);
+  };
+
+  // Resolve when the queued speech has finished — this is what makes the
+  // Python runAndWait() actually block until the words are spoken. We poll
+  // the `speaking`/`pending` flags across animation frames, which is robust
+  // across browsers where per-utterance onend can be flaky.
+  globalThis.jsSpeechWait = () => new Promise((resolve) => {
+    if (!synth) { resolve(); return; }
+    const check = () => {
+      if (!synth.speaking && !synth.pending) { resolve(); return; }
+      setTimeout(check, 60);
+    };
+    check();
+  });
+
+  // Stop and clear the queue, like pyttsx3's stop().
+  globalThis.jsSpeechStop = () => { if (synth) synth.cancel(); };
+
+  // Synchronous snapshot of voices as [{id, name}, ...] for Python's
+  // getProperty("voices"). Populated by ensureVoices()/jsSpeechWarm(); may be
+  // empty until speech has been warmed up (which runCode() does on first use).
+  globalThis.jsSpeechVoices = () => {
+    const voices = synth ? synth.getVoices() : [];
+    return voices.map((v) => ({ id: v.voiceURI, name: v.name }));
+  };
+
   turtleReset();   // start hidden + blank
 
   pyodide.runPython(`
@@ -985,6 +1056,11 @@ def __collect_async_funcs(tree):
                 calls[self.stack[-1]].add(node.func.id)
                 if node.func.id == "input":
                     uses_input.add(self.stack[-1])
+            # engine.runAndWait() blocks on speech, so it must be awaited;
+            # that forces the enclosing function to become async too.
+            if self.stack and (isinstance(node.func, ast.Attribute)
+                               and node.func.attr == "runAndWait"):
+                uses_input.add(self.stack[-1])
             self.generic_visit(node)
 
     _Scan().visit(tree)
@@ -1038,18 +1114,27 @@ class _AsyncRewriter(ast.NodeTransformer):
             return new
         return node
 
+    def _is_async_call(self, node):
+        # Calls we must await: input(), user functions marked async, and the
+        # pyttsx3 engine.runAndWait() method (it blocks on speech).
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and (
+                    node.func.id == "input" or node.func.id in self.async_funcs):
+                return True
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "runAndWait":
+                return True
+        return False
+
     def visit_Call(self, node):
         self.generic_visit(node)
-        if isinstance(node.func, ast.Name) and (
-                node.func.id == "input" or node.func.id in self.async_funcs):
+        if self._is_async_call(node):
             return ast.Await(value=node)
         return node
 
     def visit_Await(self, node):
         # Don't double-await something already awaited.
         inner = node.value
-        if (isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
-                and (inner.func.id == "input" or inner.func.id in self.async_funcs)):
+        if self._is_async_call(inner):
             inner.args = [self.visit(a) for a in inner.args]
             inner.keywords = [self.visit(k) for k in inner.keywords]
             return node
@@ -1433,6 +1518,92 @@ _mod.canvas_height = canvas_height
 sys.modules["turtle"] = _mod
 `);
 
+  // ---------- A speech-synthesis `pyttsx3` shim ----------
+  // Mimics the subset of the real pyttsx3 API that beginners use, backed by
+  // the browser's speechSynthesis (see the JS bridge above). The API shape
+  // matches the pip package, so the same code runs in Thonny after
+  // `pip install pyttsx3`. engine.say() queues text; engine.runAndWait()
+  // is awaited by the AST rewriter so it blocks until the words are spoken.
+  pyodide.runPython(`
+import sys, types
+from js import (jsSpeechSpeak, jsSpeechWait, jsSpeechStop, jsSpeechVoices)
+
+class _Voice:
+    # Mirrors pyttsx3.voice.Voice (the attributes students usually read).
+    def __init__(self, id, name):
+        self.id = id
+        self.name = name
+        self.languages = []
+        self.gender = None
+        self.age = None
+    def __repr__(self):
+        return "<Voice id=%s name=%s>" % (self.id, self.name)
+
+class _Engine:
+    def __init__(self):
+        self._queue = []
+        self._rate = 200        # pyttsx3 default is ~200 wpm
+        self._volume = 1.0      # 0.0 .. 1.0
+        self._voice = ""        # selected voice id (empty = browser default)
+
+    # --- speaking -------------------------------------------------------
+    def say(self, text, name=None):
+        # Like pyttsx3: queue the text; nothing is spoken until runAndWait().
+        self._queue.append(str(text))
+
+    async def runAndWait(self):
+        # Flush the queue to the browser, then wait until speech finishes.
+        for text in self._queue:
+            jsSpeechSpeak(text, self._rate, self._volume, self._voice)
+        self._queue = []
+        await jsSpeechWait()
+
+    def stop(self):
+        self._queue = []
+        jsSpeechStop()
+
+    # --- properties -----------------------------------------------------
+    def getProperty(self, name):
+        if name == "rate":
+            return self._rate
+        if name == "volume":
+            return self._volume
+        if name == "voice":
+            return self._voice
+        if name == "voices":
+            # jsSpeechVoices() returns a synchronous snapshot (warmed up on
+            # first use by the lazy speech hook in runCode()).
+            raw = jsSpeechVoices()
+            try:
+                items = raw.to_py() if hasattr(raw, "to_py") else list(raw)
+            except Exception:
+                items = []
+            return [_Voice(v["id"], v["name"]) for v in items]
+        return None
+
+    def setProperty(self, name, value):
+        if name == "rate":
+            self._rate = float(value)
+        elif name == "volume":
+            self._volume = max(0.0, min(1.0, float(value)))
+        elif name == "voice":
+            self._voice = str(value) if value is not None else ""
+
+_engine_singleton = None
+
+def init(driverName=None, debug=False):
+    # pyttsx3.init() returns a shared engine instance; mimic that.
+    global _engine_singleton
+    if _engine_singleton is None:
+        _engine_singleton = _Engine()
+    return _engine_singleton
+
+_mod = types.ModuleType("pyttsx3")
+_mod.init = init
+_mod.Engine = _Engine
+sys.modules["pyttsx3"] = _mod
+`);
+
   statusEl.textContent = "🐍 Python ready!";
   setTimeout(() => (statusEl.style.display = "none"), 2000);
   runBtn.disabled = false;
@@ -1544,6 +1715,26 @@ _plt.show = _show
     statusEl.style.display = "none";
   }
 
+  // ---------- Lazy speech (pyttsx3 shim) ----------
+  // Nothing to download — speechSynthesis is built into the browser. The only
+  // one-time cost is waiting for the OS voice list to populate, so we warm it
+  // up the first time a program imports pyttsx3 (mirrors ensureMatplotlib()).
+  let speechReady = false;
+  function usesSpeech(src) {
+    return /\bpyttsx3\b/.test(src);
+  }
+  async function ensureSpeech() {
+    if (speechReady) return;
+    const prev = statusEl.textContent;
+    statusEl.style.display = "";
+    statusEl.textContent = "🔊 Preparing speech…";
+    await nextFrame();
+    if (globalThis.jsSpeechWarm) await globalThis.jsSpeechWarm();
+    speechReady = true;
+    statusEl.textContent = prev;
+    statusEl.style.display = "none";
+  }
+
   async function runCode() {
     const source = view.state.doc.toString();
     runBtn.disabled = true;
@@ -1557,6 +1748,16 @@ _plt.show = _show
         await ensureMatplotlib();
       } catch (e) {
         appendOutput("Could not load charts: " + String(e && e.message || e), "error");
+        runBtn.disabled = false;
+        return;
+      }
+    }
+    // Warm up speech voices the first time a program uses pyttsx3.
+    if (usesSpeech(source)) {
+      try {
+        await ensureSpeech();
+      } catch (e) {
+        appendOutput("Could not start speech: " + String(e && e.message || e), "error");
         runBtn.disabled = false;
         return;
       }
