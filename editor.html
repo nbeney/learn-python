@@ -249,6 +249,51 @@
     .chart-img { max-height: 38vh; }
   }
 
+  /* GUI window from guizero (app.display()) lives in its OWN box above the
+     output, like the chart box. Hidden until a program displays an App. */
+  .gui-box {
+    display: none;
+    flex: 0 0 auto;
+    background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: .6rem; margin-bottom: .8rem;
+    max-height: 50vh; overflow: auto;
+  }
+  .gui-box.show { display: block; }
+  /* The window title bar (App title). */
+  .gui-title {
+    font-weight: 600; font-size: .95rem;
+    color: var(--text); margin: 0 0 .5rem;
+    padding-bottom: .4rem; border-bottom: 1px solid var(--border);
+  }
+  /* The root container holds the widgets. Auto layout = centered column. */
+  .gui-root { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+  /* A guizero Box is just a nested container with the same behaviour. */
+  .gui-box-widget { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+  .gui-box-widget.bordered { border: 1px solid var(--border); border-radius: 6px; padding: .5rem; }
+  /* Grid layout containers switch from flex to CSS grid. */
+  .gui-root.grid, .gui-box-widget.grid { display: grid; gap: .5rem; align-items: start; justify-items: start; }
+
+  /* Widget base styling, themed to match the editor. */
+  .gui-root button, .gui-box-widget button {
+    font: inherit; font-size: .9rem; font-weight: 600;
+    padding: .4rem .9rem; border-radius: 8px; cursor: pointer;
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
+  }
+  .gui-root button:disabled, .gui-box-widget:disabled { opacity: .6; cursor: default; }
+  .gui-root input[type="text"], .gui-box-widget input[type="text"],
+  .gui-root select, .gui-box-widget select {
+    font: inherit; font-size: .9rem;
+    padding: .35rem .5rem; border-radius: 8px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  }
+  .gui-text { color: var(--text); font-size: .95rem; }
+  .gui-group { display: flex; gap: .4rem; }
+  .gui-group.vertical { flex-direction: column; align-items: flex-start; }
+  .gui-group label { display: inline-flex; align-items: center; gap: .3rem; color: var(--text); font-size: .92rem; }
+  .gui-check { display: inline-flex; align-items: center; gap: .4rem; color: var(--text); font-size: .92rem; }
+  .gui-slider { display: inline-flex; align-items: center; gap: .5rem; }
+
   /* Turtle drawing surface. Hidden until a program uses the turtle module. */
   .turtle-wrap { display: none; margin-bottom: .6rem; min-height: 0; }
   .turtle-wrap.show { display: flex; }
@@ -354,6 +399,9 @@
       <!-- Chart box: its own box, shown only when a program draws a chart. -->
       <div class="chart-box" id="chartBox"><img id="chartImg" class="chart-img" alt="chart" /></div>
 
+      <!-- GUI box: a guizero window renders here. Hidden until app.display(). -->
+      <div class="gui-box" id="guiBox"><div class="gui-root" id="guiRoot"></div></div>
+
       <div class="output" id="output"><div class="turtle-wrap" id="turtleWrap"><div class="turtle-stack"><canvas id="turtleCanvas" width="400" height="400"></canvas><canvas id="turtleCursor" width="400" height="400"></canvas></div></div><span id="outText">The program output will show up here.</span></div>
     </div>
   </div>
@@ -432,6 +480,8 @@
   const turtleCanvas = document.getElementById("turtleCanvas");
   const chartBox = document.getElementById("chartBox");    // matplotlib chart box
   const chartImg = document.getElementById("chartImg");    // matplotlib output image
+  const guiBox = document.getElementById("guiBox");        // guizero GUI window box
+  const guiRoot = document.getElementById("guiRoot");      // guizero widget container
   const runBtn = document.getElementById("run");
 
   const fileSelect = document.getElementById("fileSelect");
@@ -984,6 +1034,198 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   globalThis.jsSpeechVoices = () => {
     const voices = synth ? synth.getVoices() : [];
     return voices.map((v) => ({ id: v.voiceURI, name: v.name }));
+  };
+
+  // ---------- GUI bridge (guizero shim) ----------
+  // Backs a small `guizero` shim on the Python side. The Python module owns
+  // the widget model; this bridge only creates DOM nodes, applies properties,
+  // lays them out (auto or grid), and calls back into Python on events. Code
+  // written here runs unchanged in Thonny after `pip install guizero`.
+  //
+  // Each widget is a DOM element stored by a numeric id the Python side hands
+  // us. Python registers an event handler via jsGuiOnEvent; we invoke it when
+  // the DOM fires the matching event.
+  const guiNodes = new Map();          // id -> DOM element (the widget's main node)
+  let guiEventHandler = null;          // Python callback: (id, kind, value) -> None
+
+  globalThis.jsGuiReset = () => {
+    guiNodes.clear();
+    guiRoot.innerHTML = "";
+    guiRoot.className = "gui-root";
+    guiBox.classList.remove("show");
+    const oldTitle = guiBox.querySelector(".gui-title");
+    if (oldTitle) oldTitle.remove();
+  };
+
+  globalThis.jsGuiOnEvent = (fn) => { guiEventHandler = fn; };
+
+  function guiFire(id, kind, value) {
+    if (guiEventHandler) guiEventHandler(id, kind, value);
+  }
+
+  // Show the window: reveal the box and set its title bar.
+  globalThis.jsGuiDisplay = (title) => {
+    if (title) {
+      let bar = guiBox.querySelector(".gui-title");
+      if (!bar) {
+        bar = document.createElement("div");
+        bar.className = "gui-title";
+        guiBox.insertBefore(bar, guiBox.firstChild);
+      }
+      bar.textContent = title;
+    }
+    guiBox.classList.add("show");
+  };
+
+  // Set the layout mode of a container ("auto" or "grid").
+  function applyLayout(el, layout) {
+    el.classList.toggle("grid", layout === "grid");
+  }
+  globalThis.jsGuiSetLayout = (id, layout) => {
+    const el = id === 0 ? guiRoot : guiNodes.get(id);
+    if (el) applyLayout(el, layout);
+  };
+
+  // Place a child into its parent, honouring grid=[x,y,xspan,yspan] and align.
+  function placeChild(parentEl, childEl, grid, align) {
+    if (grid && grid.length >= 2) {
+      // guizero grid is [x,y] = [column,row], 0-based; CSS grid is 1-based.
+      childEl.style.gridColumn = (grid[0] + 1) + (grid.length >= 3 ? " / span " + grid[2] : "");
+      childEl.style.gridRow = (grid[1] + 1) + (grid.length >= 4 ? " / span " + grid[3] : "");
+    }
+    if (align === "left") childEl.style.alignSelf = "flex-start";
+    else if (align === "right") childEl.style.alignSelf = "flex-end";
+    parentEl.appendChild(childEl);
+  }
+
+  // Create a widget. `spec` is a plain object from Python with everything the
+  // widget needs. Returns nothing; the node is stored under spec.id.
+  globalThis.jsGuiCreate = (spec) => {
+    const s = spec.to_py ? spec.to_py() : spec;
+    const parent = s.parent === 0 ? guiRoot : guiNodes.get(s.parent);
+    if (!parent) return;
+    let node;
+
+    if (s.type === "Box") {
+      node = document.createElement("div");
+      node.className = "gui-box-widget" + (s.border ? " bordered" : "");
+      applyLayout(node, s.layout || "auto");
+    } else if (s.type === "Text") {
+      node = document.createElement("div");
+      node.className = "gui-text";
+      node.textContent = s.text != null ? String(s.text) : "";
+    } else if (s.type === "PushButton") {
+      node = document.createElement("button");
+      node.textContent = s.text != null ? String(s.text) : "";
+      node.addEventListener("click", () => guiFire(s.id, "command", null));
+    } else if (s.type === "TextBox") {
+      node = document.createElement("input");
+      node.type = "text";
+      node.value = s.text != null ? String(s.text) : "";
+      if (s.width && s.width !== "fill") node.size = Number(s.width) || 20;
+      node.addEventListener("input", () => guiFire(s.id, "change", node.value));
+    } else if (s.type === "CheckBox") {
+      node = document.createElement("label");
+      node.className = "gui-check";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = !!s.value;
+      box.addEventListener("change", () => guiFire(s.id, "command", box.checked ? 1 : 0));
+      const txt = document.createElement("span");
+      txt.textContent = s.text != null ? String(s.text) : "";
+      node.appendChild(box);
+      node.appendChild(txt);
+      node._input = box;          // remember for get/set
+    } else if (s.type === "ButtonGroup") {
+      node = document.createElement("div");
+      node.className = "gui-group" + (s.horizontal ? "" : " vertical");
+      const name = "bg_" + s.id;
+      (s.options || []).forEach((opt) => {
+        const label = document.createElement("label");
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = name;
+        radio.value = String(opt.value);
+        if (String(opt.value) === String(s.selected)) radio.checked = true;
+        radio.addEventListener("change", () => { if (radio.checked) guiFire(s.id, "command", radio.value); });
+        const span = document.createElement("span");
+        span.textContent = String(opt.text);
+        label.appendChild(radio);
+        label.appendChild(span);
+        node.appendChild(label);
+      });
+    } else if (s.type === "Combo") {
+      node = document.createElement("select");
+      (s.options || []).forEach((opt) => {
+        const o = document.createElement("option");
+        o.value = String(opt);
+        o.textContent = String(opt);
+        if (String(opt) === String(s.selected)) o.selected = true;
+        node.appendChild(o);
+      });
+      node.addEventListener("change", () => guiFire(s.id, "command", node.value));
+    } else if (s.type === "Slider") {
+      node = document.createElement("span");
+      node.className = "gui-slider";
+      const range = document.createElement("input");
+      range.type = "range";
+      range.min = String(s.start != null ? s.start : 0);
+      range.max = String(s.end != null ? s.end : 100);
+      range.value = String(s.value != null ? s.value : (s.start != null ? s.start : 0));
+      const out = document.createElement("span");
+      out.className = "gui-text";
+      out.textContent = range.value;
+      range.addEventListener("input", () => { out.textContent = range.value; guiFire(s.id, "change", Number(range.value)); });
+      node.appendChild(range);
+      node.appendChild(out);
+      node._input = range;
+    } else {
+      return;   // unknown widget type
+    }
+
+    guiNodes.set(s.id, node);
+    placeChild(parent, node, s.grid, s.align);
+  };
+
+  // Get a widget's current value (TextBox text, CheckBox 0/1, Combo/BG value,
+  // Slider number, Text content).
+  globalThis.jsGuiGet = (id, kind) => {
+    const el = guiNodes.get(id);
+    if (!el) return null;
+    if (kind === "text") return el.textContent;
+    if (kind === "input") return el.value;
+    if (kind === "checked") return (el._input && el._input.checked) ? 1 : 0;
+    if (kind === "slider") return el._input ? Number(el._input.value) : 0;
+    if (kind === "radio") {
+      const sel = el.querySelector("input:checked");
+      return sel ? sel.value : null;
+    }
+    if (kind === "combo") return el.value;
+    return null;
+  };
+
+  // Set a widget's value/text.
+  globalThis.jsGuiSet = (id, kind, value) => {
+    const el = guiNodes.get(id);
+    if (!el) return;
+    if (kind === "text") el.textContent = value != null ? String(value) : "";
+    else if (kind === "button") el.textContent = value != null ? String(value) : "";
+    else if (kind === "input") el.value = value != null ? String(value) : "";
+    else if (kind === "checked") { if (el._input) el._input.checked = !!Number(value); }
+    else if (kind === "slider") { if (el._input) el._input.value = String(value); }
+    else if (kind === "radio") {
+      const target = el.querySelector('input[value="' + String(value) + '"]');
+      if (target) target.checked = true;
+    } else if (kind === "combo") el.value = String(value);
+  };
+
+  // Enable/disable a widget.
+  globalThis.jsGuiEnable = (id, on) => {
+    const el = guiNodes.get(id);
+    if (!el) return;
+    const input = el._input || (el.tagName === "BUTTON" || el.tagName === "INPUT" || el.tagName === "SELECT" ? el : null);
+    if (input) input.disabled = !on;
+    el.querySelectorAll("input, button, select").forEach((n) => { n.disabled = !on; });
   };
 
   turtleReset();   // start hidden + blank
@@ -1604,6 +1846,262 @@ _mod.Engine = _Engine
 sys.modules["pyttsx3"] = _mod
 `);
 
+  // ---------- A DOM-backed `guizero` shim ----------
+  // Mimics the subset of guizero that Code Club students use: App, Box, Text,
+  // PushButton, TextBox, CheckBox, ButtonGroup, Combo, Slider, with auto/grid
+  // layout and command= callbacks (with args). The Python side owns the model
+  // and assigns each widget an id; the JS bridge (above) renders the DOM and
+  // calls back on events. Same code runs in Thonny after `pip install guizero`.
+  pyodide.runPython(`
+import sys, types
+from js import (jsGuiReset, jsGuiDisplay, jsGuiCreate, jsGuiGet, jsGuiSet,
+                jsGuiOnEvent, jsGuiSetLayout, jsGuiEnable)
+from js import Object as _JsObject
+from pyodide.ffi import to_js, create_proxy
+
+jsGuiReset()
+
+# Helper so to_js turns dicts into real JS objects (not Maps), which the JS
+# bridge reads with dot-access (spec.type, spec.id, ...).
+def js_object_from_dict(entries):
+    o = _JsObject.new()
+    for k, v in entries:
+        setattr(o, k, v)
+    return o
+
+_widgets = {}          # id -> widget instance
+_next_id = [1]
+
+def _new_id():
+    i = _next_id[0]
+    _next_id[0] += 1
+    return i
+
+def _dispatch(wid, kind, value):
+    # Called from JS when a DOM event fires. Route to the widget's command.
+    w = _widgets.get(wid)
+    if w is not None:
+        w._handle(kind, value)
+
+# Keep the proxy alive for the whole program so callbacks keep working.
+_event_proxy = create_proxy(_dispatch)
+jsGuiOnEvent(_event_proxy)
+
+def _call(command, args):
+    if command is None:
+        return
+    if args:
+        command(*args)
+    else:
+        command()
+
+
+class _Widget:
+    # Base class: holds id, master, command/args, and talks to the JS bridge.
+    def __init__(self, master, command=None, args=None):
+        self._id = _new_id()
+        self._command = command
+        self._args = args
+        _widgets[self._id] = self
+        self._master_id = 0 if isinstance(master, App) else getattr(master, "_id", 0)
+
+    def _handle(self, kind, value):
+        _call(self._command, self._args)
+
+    def _spec(self, **extra):
+        spec = {"id": self._id, "parent": self._master_id}
+        spec.update(extra)
+        return spec
+
+    def _create(self, **extra):
+        jsGuiCreate(to_js(self._spec(**extra), dict_converter=js_object_from_dict))
+
+    # Common methods.
+    def disable(self):
+        jsGuiEnable(self._id, False)
+    def enable(self):
+        jsGuiEnable(self._id, True)
+    def update_command(self, command, args=None):
+        self._command = command
+        self._args = args
+
+
+class _Container:
+    # Mixin for things that can hold widgets and have a layout.
+    def _init_layout(self, layout):
+        self._layout = layout or "auto"
+
+
+class App(_Container):
+    def __init__(self, title="guizero", width=None, height=None, layout="auto", bg=None):
+        self._id = 0
+        self._title = title
+        self._init_layout(layout)
+        jsGuiSetLayout(0, self._layout)
+
+    def display(self):
+        # In the browser there is no blocking mainloop; reveal the window and
+        # return. Button callbacks keep firing after the script ends.
+        jsGuiDisplay(self._title)
+
+    # mainloop alias some students may type.
+    def mainloop(self):
+        self.display()
+
+
+class Box(_Widget, _Container):
+    def __init__(self, master, layout="auto", align=None, border=False,
+                 width=None, height=None, grid=None):
+        super().__init__(master)
+        self._init_layout(layout)
+        self._create(type="Box", layout=self._layout, border=bool(border),
+                     align=align, grid=grid)
+
+
+class Text(_Widget):
+    def __init__(self, master, text="", size=None, color=None, grid=None, align=None):
+        super().__init__(master)
+        self._create(type="Text", text=text, grid=grid, align=align)
+
+    @property
+    def value(self):
+        return jsGuiGet(self._id, "text")
+    @value.setter
+    def value(self, v):
+        jsGuiSet(self._id, "text", v)
+
+
+class PushButton(_Widget):
+    def __init__(self, master, command=None, args=None, text="Button", grid=None, align=None):
+        super().__init__(master, command, args)
+        self._create(type="PushButton", text=text, grid=grid, align=align)
+
+    @property
+    def text(self):
+        return jsGuiGet(self._id, "text")
+    @text.setter
+    def text(self, v):
+        jsGuiSet(self._id, "button", v)
+
+
+class TextBox(_Widget):
+    def __init__(self, master, text="", width=None, command=None, args=None,
+                 grid=None, align=None, multiline=False):
+        super().__init__(master, command, args)
+        self._create(type="TextBox", text=text, width=width, grid=grid, align=align)
+
+    def _handle(self, kind, value):
+        _call(self._command, self._args)
+
+    @property
+    def value(self):
+        return jsGuiGet(self._id, "input")
+    @value.setter
+    def value(self, v):
+        jsGuiSet(self._id, "input", v)
+
+
+class CheckBox(_Widget):
+    def __init__(self, master, text="", command=None, args=None, grid=None, align=None):
+        super().__init__(master, command, args)
+        self._create(type="CheckBox", text=text, value=0, grid=grid, align=align)
+
+    @property
+    def value(self):
+        return jsGuiGet(self._id, "checked")
+    @value.setter
+    def value(self, v):
+        jsGuiSet(self._id, "checked", v)
+
+
+class ButtonGroup(_Widget):
+    def __init__(self, master, options=None, selected=None, horizontal=False,
+                 command=None, args=None, grid=None, align=None):
+        super().__init__(master, command, args)
+        # options may be a flat list or a 2D list of [text, value] pairs.
+        # Pass plain dicts; to_js() converts them (and this spec) uniformly
+        # via the dict_converter in _create().
+        pairs = []
+        for opt in (options or []):
+            if isinstance(opt, (list, tuple)) and len(opt) >= 2:
+                pairs.append({"text": opt[0], "value": opt[1]})
+            else:
+                pairs.append({"text": opt, "value": opt})
+        if selected is None and pairs:
+            selected = pairs[0]["value"]
+        self._create(type="ButtonGroup", options=pairs,
+                     selected=selected, horizontal=bool(horizontal),
+                     grid=grid, align=align)
+
+    @property
+    def value(self):
+        return jsGuiGet(self._id, "radio")
+    @value.setter
+    def value(self, v):
+        jsGuiSet(self._id, "radio", v)
+
+
+class Combo(_Widget):
+    def __init__(self, master, options=None, selected=None, command=None,
+                 args=None, grid=None, align=None):
+        super().__init__(master, command, args)
+        opts = list(options or [])
+        if selected is None and opts:
+            selected = opts[0]
+        self._create(type="Combo", options=opts, selected=selected,
+                     grid=grid, align=align)
+
+    @property
+    def value(self):
+        return jsGuiGet(self._id, "combo")
+    @value.setter
+    def value(self, v):
+        jsGuiSet(self._id, "combo", v)
+
+
+class Slider(_Widget):
+    def __init__(self, master, start=0, end=100, horizontal=True, command=None,
+                 args=None, grid=None, align=None):
+        super().__init__(master, command, args)
+        self._create(type="Slider", start=start, end=end, value=start,
+                     grid=grid, align=align)
+
+    def _handle(self, kind, value):
+        # Slider command receives the new value as a string, like guizero.
+        if self._command is None:
+            return
+        if self._args:
+            self._command(str(value), *self._args)
+        else:
+            self._command(str(value))
+
+    @property
+    def value(self):
+        return jsGuiGet(self._id, "slider")
+    @value.setter
+    def value(self, v):
+        jsGuiSet(self._id, "slider", v)
+
+
+_mod = types.ModuleType("guizero")
+_mod.App = App
+_mod.Box = Box
+_mod.Text = Text
+_mod.PushButton = PushButton
+_mod.TextBox = TextBox
+_mod.CheckBox = CheckBox
+_mod.ButtonGroup = ButtonGroup
+_mod.Combo = Combo
+_mod.Slider = Slider
+# Reset hook so each run starts with a fresh, empty window.
+def _reset_gui():
+    _widgets.clear()
+    _next_id[0] = 1
+    jsGuiReset()
+_mod._reset = _reset_gui
+sys.modules["guizero"] = _mod
+`);
+
   statusEl.textContent = "🐍 Python ready!";
   setTimeout(() => (statusEl.style.display = "none"), 2000);
   runBtn.disabled = false;
@@ -1633,6 +2131,7 @@ sys.modules["pyttsx3"] = _mod
     turtleReset();                           // hide + wipe the turtle canvas
     chartBox.classList.remove("show");       // hide any previous chart box
     chartImg.removeAttribute("src");
+    if (globalThis.jsGuiReset) globalThis.jsGuiReset();   // hide + wipe the GUI window
   }
 
   // jsChart(dataUrl): called by matplotlib's show() with a PNG data URL. We
@@ -1735,6 +2234,14 @@ _plt.show = _show
     statusEl.style.display = "none";
   }
 
+  // ---------- GUI (guizero shim) detection ----------
+  // Nothing to download — the GUI is rendered with the DOM. We only need to
+  // know whether a program uses guizero so the run can keep the Python event
+  // callbacks alive after the top-level code finishes (see runCode()).
+  function usesGuizero(src) {
+    return /\bguizero\b/.test(src);
+  }
+
   async function runCode() {
     const source = view.state.doc.toString();
     runBtn.disabled = true;
@@ -1742,6 +2249,8 @@ _plt.show = _show
     // Reset the turtle module's default-turtle singleton so a program that
     // uses turtle re-reveals the canvas (clearOutput hides it every run).
     pyodide.runPython("import sys\nif 'turtle' in sys.modules: sys.modules['turtle']._reset()");
+    // Reset the guizero window so each run starts with an empty GUI.
+    pyodide.runPython("import sys\nif 'guizero' in sys.modules: sys.modules['guizero']._reset()");
     // Lazily fetch matplotlib the first time a program needs it.
     if (usesMatplotlib(source)) {
       try {
@@ -1771,7 +2280,8 @@ _plt.show = _show
       // The chart has its own box, so a chart alone still counts as "no
       // output" in the text box. The turtle draws inside the output box, so
       // it does suppress the placeholder.
-      if (!outTextEl.textContent && !turtleWrap.classList.contains("show")) {
+      if (!outTextEl.textContent && !turtleWrap.classList.contains("show")
+          && !guiBox.classList.contains("show")) {
         appendOutput("(no output)", null);
       }
     } catch (e) {

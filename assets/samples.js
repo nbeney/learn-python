@@ -78,6 +78,75 @@ print(a, "x", b, "=", a * b)
 `,
   },
   {
+    name: "🪟 GUI: hello buttons",
+    code: `# A little window with a label and two buttons.
+from guizero import App, Text, PushButton
+
+def say_hello():
+    message.value = "Hello! 👋"
+
+def say_bye():
+    message.value = "Goodbye! 👋"
+
+app = App(title="My first GUI")
+
+message = Text(app, text="Press a button")
+PushButton(app, text="Say hello", command=say_hello)
+PushButton(app, text="Say goodbye", command=say_bye)
+
+app.display()
+`,
+  },
+  {
+    name: "🧾 GUI: form (grid)",
+    code: `# Widgets lined up in a grid: label + box on each row.
+from guizero import App, Text, TextBox, PushButton, Combo, CheckBox
+
+def greet():
+    name = name_box.value
+    color = color_combo.value
+    loud = "!!!" if shout.value else "."
+    result.value = f"Hi {name}, you like {color}{loud}"
+
+app = App(title="Greeter", layout="grid")
+
+Text(app, text="Name", grid=[0, 0], align="left")
+name_box = TextBox(app, grid=[1, 0])
+
+Text(app, text="Colour", grid=[0, 1], align="left")
+color_combo = Combo(app, options=["red", "green", "blue"], grid=[1, 1])
+
+shout = CheckBox(app, text="Shout it", grid=[1, 2], align="left")
+
+PushButton(app, text="Greet me", command=greet, grid=[0, 3])
+result = Text(app, text="", grid=[1, 3], align="left")
+
+app.display()
+`,
+  },
+  {
+    name: "🎚️ GUI: colour mixer (slider)",
+    code: `# Sliders with event handlers that update a label live.
+from guizero import App, Text, Slider, ButtonGroup
+
+def update(value=None):
+    picked = pick.value
+    result.value = f"You picked: {picked} (slider at {level.value})"
+
+app = App(title="Picker")
+
+pick = ButtonGroup(app, options=["Apple", "Banana", "Cherry"],
+                   selected="Apple", command=update)
+
+Text(app, text="How many?")
+level = Slider(app, start=1, end=10, command=update)
+
+result = Text(app, text="You picked: Apple (slider at 1)")
+
+app.display()
+`,
+  },
+  {
     name: "🔤 NATO spelling (speaks)",
     code: `# Type some text, then spell it out loud using the NATO alphabet.
 import pyttsx3
