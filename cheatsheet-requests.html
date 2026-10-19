@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🌐 Internet Requests Cheatsheet</title>
+
+<!-- Apply the saved theme before paint to avoid a flash of the wrong colours. -->
+<script>
+  (function () {
+    var t = localStorage.getItem("theme") || "system";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+
+<style>
+  :root {
+    --bg: #f6f8fa;
+    --card: #ffffff;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --border: #d0d7de;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --border: #30363d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="system"], :root:not([data-theme]) {
+      --bg: #0d1117;
+      --card: #161b22;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #58a6ff;
+      --border: #30363d;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem 1rem 4rem;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 2.5rem; }
+  header h1 { font-size: 2.4rem; margin: 0 0 .3rem; }
+  header p { color: var(--muted); margin: 0; }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1.6rem;
+  }
+
+  h2 { margin: 0 0 .2rem; font-size: 1.5rem; }
+  .blurb { color: var(--muted); margin: 0 0 1rem; font-size: .95rem; }
+
+  /* Static, display-only code blocks (no editor, no running here). */
+  pre.code {
+    margin: .6rem 0 0;
+    background: #0d1117; color: #e6edf3;
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: .8rem 1rem; overflow: auto;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .9rem; line-height: 1.5;
+  }
+  :root:not([data-theme="dark"]) pre.code { background: #161b22; }
+
+  /* Inline command reference tables. */
+  table.ref { width: 100%; border-collapse: collapse; margin-top: .4rem; }
+  table.ref td {
+    border-top: 1px solid var(--border);
+    padding: .35rem .4rem; vertical-align: top; font-size: .92rem;
+  }
+  table.ref td.cmd {
+    width: 42%; white-space: nowrap;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    color: var(--accent);
+  }
+  table.ref tr:first-child td { border-top: none; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+  .tip {
+    border-left: 4px solid var(--accent);
+    background: rgba(88,166,255,.08);
+    padding: .5rem .9rem; border-radius: 6px;
+    margin-top: 1rem; font-size: .9rem;
+  }
+
+  footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 2rem; }
+
+  .home-emoji { color: inherit; text-decoration: none; cursor: pointer; }
+  .home-emoji:hover { filter: brightness(1.15); }
+
+  /* ---------- Corner menu (navigation + theme) ---------- */
+  .menu {
+    position: fixed; top: 12px; z-index: 50;
+    left: 0; right: 0;
+    margin: 0 auto;
+    width: calc(100% - 2rem); max-width: 820px;
+    display: flex; justify-content: flex-end;
+    pointer-events: none;
+  }
+  .menu > * { pointer-events: auto; }
+  .menu-btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    font-size: 1.2rem; line-height: 1; cursor: pointer;
+    width: 42px; height: 42px;
+  }
+  .menu-btn:hover { border-color: var(--accent); }
+  .menu-panel {
+    position: absolute; top: 48px; right: 0;
+    min-width: 180px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: .4rem;
+    box-shadow: 0 10px 24px rgba(0,0,0,.22);
+    display: none;
+  }
+  .menu.open .menu-panel { display: block; }
+  .menu-panel a {
+    display: block; text-decoration: none;
+    color: var(--text); font-size: .95rem;
+    padding: .5rem .6rem; border-radius: 8px;
+  }
+  .menu-panel a:hover { background: rgba(127,127,127,.14); }
+  .menu-panel a[aria-current="page"] {
+    color: var(--muted); font-weight: 600; pointer-events: none;
+  }
+  .menu-panel a[aria-current="page"]::after { content: " ●"; color: var(--accent); }
+  .menu-sep { height: 1px; background: var(--border); margin: .4rem .2rem; }
+  .menu-label { font-size: .75rem; color: var(--muted); padding: .2rem .6rem; }
+
+  .theme-switch { display: flex; gap: .15rem; padding: .2rem .4rem .3rem; }
+  .theme-switch button {
+    flex: 1; background: transparent; border: 1px solid var(--border);
+    cursor: pointer; color: var(--muted); font-size: .95rem; line-height: 1;
+    padding: .4rem; border-radius: 8px;
+  }
+  .theme-switch button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .theme-switch button:hover { color: var(--text); }
+  .theme-switch button[aria-pressed="true"]:hover { color: #fff; }
+
+  @media print {
+    body { background: #fff; color: #111; padding: 0; }
+    section { background: #fff; border: 1px solid #ccc; break-inside: avoid; }
+    pre.code { background: #f4f4f4; color: #111; border: 1px solid #ccc; }
+    .menu { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Corner menu: navigation + theme. -->
+<nav class="menu" id="menu">
+  <button class="menu-btn" id="menuBtn" aria-haspopup="true" aria-expanded="false" aria-label="Menu">☰</button>
+  <div class="menu-panel" role="menu">
+    <a href="index.html" role="menuitem">🏠 Home</a>
+    <a href="cheatsheet.html" role="menuitem">📖 Cheatsheets</a>
+    <a href="shell.html" role="menuitem">⌨️ Shell</a>
+    <a href="editor.html" role="menuitem">📝 Editor</a>
+    <div class="menu-sep"></div>
+    <div class="menu-label">Theme</div>
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button data-theme-value="light"  title="Light">☀️</button>
+      <button data-theme-value="dark"   title="Dark">🌙</button>
+      <button data-theme-value="system" title="Match system">💻</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header>
+    <h1><a href="index.html" class="home-emoji" title="Home" aria-label="Home">🌐</a> Internet Requests Cheatsheet</h1>
+    <p>Fetch data from the internet with <code>requests</code>. Copy any example into the <a href="editor.html">Editor</a> and press ▶ Run.</p>
+  </header>
+
+  <section>
+    <h2>🚀 Getting started</h2>
+    <p class="blurb">Ask a website for some data with <code>requests.get(...)</code>, then read what comes back.</p>
+    <pre class="code">import requests
+
+response = requests.get("https://catfact.ninja/fact")
+data = response.json()
+
+print("🐱", data["fact"])</pre>
+    <p class="blurb" style="margin-top:1rem">Most web APIs send back <strong>JSON</strong> — a bit like a Python
+      dictionary. <code>response.json()</code> turns it into one you can read with <code>data["..."]</code>.</p>
+    <div class="tip">💡 <code>catfact.ninja</code> and <code>Open-Meteo</code> both work without any sign-up or
+      password (an "API key"), which makes them great for practising.</div>
+  </section>
+
+  <section>
+    <h2>📥 Making a request</h2>
+    <p class="blurb">The two requests you will use most are <code>get</code> (fetch data) and <code>post</code> (send data).</p>
+    <table class="ref">
+      <tr><td class="cmd">requests.get(url)</td><td>Ask a website for data.</td></tr>
+      <tr><td class="cmd">requests.get(url, params={...})</td><td>Add options to the web address (a query string).</td></tr>
+      <tr><td class="cmd">requests.post(url, json={...})</td><td>Send some JSON data to a website.</td></tr>
+      <tr><td class="cmd">requests.post(url, data={...})</td><td>Send form data to a website.</td></tr>
+    </table>
+    <pre class="code">import requests
+
+# params become ?latitude=51.51&longitude=-0.13&... on the end of the URL.
+url = "https://api.open-meteo.com/v1/forecast"
+response = requests.get(url, params={
+    "latitude": 51.51,
+    "longitude": -0.13,
+    "current_weather": True,
+})
+print(response.json()["current_weather"])</pre>
+  </section>
+
+  <section>
+    <h2>📦 Reading the response</h2>
+    <p class="blurb">A request gives you back a <code>Response</code>. Here is what you can read from it.</p>
+    <table class="ref">
+      <tr><td class="cmd">response.json()</td><td>The data as a dictionary/list (for JSON APIs).</td></tr>
+      <tr><td class="cmd">response.text</td><td>The raw reply as a string.</td></tr>
+      <tr><td class="cmd">response.status_code</td><td>The result number: <code>200</code> means OK, <code>404</code> means "not found".</td></tr>
+      <tr><td class="cmd">response.ok</td><td><code>True</code> if the request worked.</td></tr>
+      <tr><td class="cmd">response.content</td><td>The raw reply as bytes.</td></tr>
+      <tr><td class="cmd">response.raise_for_status()</td><td>Raise an error if the request failed.</td></tr>
+    </table>
+    <pre class="code">import requests
+
+response = requests.get("https://catfact.ninja/fact")
+
+if response.ok:
+    print("Status:", response.status_code)
+    print("Fact:", response.json()["fact"])
+else:
+    print("Something went wrong:", response.status_code)</pre>
+  </section>
+
+  <section>
+    <h2>🌤️ Example: the weather</h2>
+    <p class="blurb">Open-Meteo gives free weather data with no API key. Change the latitude and longitude
+      to look up your own town.</p>
+    <pre class="code">import requests
+
+url = "https://api.open-meteo.com/v1/forecast"
+params = {
+    "latitude": 51.51,     # London
+    "longitude": -0.13,
+    "current_weather": True,
+}
+
+data = requests.get(url, params=params).json()
+now = data["current_weather"]
+
+print("🌡️ Temperature:", now["temperature"], "°C")
+print("💨 Wind speed:", now["windspeed"], "km/h")</pre>
+  </section>
+
+  <section>
+    <h2>🐾 Example: random facts</h2>
+    <p class="blurb">Some fun, no-key APIs that are great for experimenting. Notice how each one puts the
+      data in a slightly different place, so you have to look at what comes back.</p>
+    <pre class="code"># A dog fact (the text is nested a few levels deep)
+import requests
+data = requests.get("https://dogapi.dog/api/v2/facts").json()
+print("🐶", data["data"][0]["attributes"]["body"])</pre>
+    <pre class="code"># A cat fact (simpler — the text is right at the top)
+import requests
+data = requests.get("https://catfact.ninja/fact").json()
+print("🐱", data["fact"])</pre>
+    <div class="tip">💡 To explore an API, first <code>print(response.json())</code> to see the whole reply,
+      then pick out the part you want with <code>data["..."]</code>.</div>
+  </section>
+
+  <section>
+    <h2>📦 The real <code>requests</code> &amp; limits of this version</h2>
+    <p class="blurb">In this editor, <code>requests</code> is a small stand-in that fetches data using the web
+      browser itself, so there is nothing to install here. The examples above use the same commands as
+      the real library, so your code should run elsewhere too.</p>
+
+    <p class="blurb" style="margin-top:1rem"><strong>Using it outside this editor.</strong> On a normal
+      computer (for example in Thonny or IDLE), install the official library first:</p>
+    <pre class="code">pip install requests</pre>
+    <p class="blurb" style="margin-top:1rem">The official project lives at
+      <a href="https://pypi.org/project/requests/">pypi.org/project/requests</a> with docs at
+      <a href="https://requests.readthedocs.io/">requests.readthedocs.io</a>. It is the most popular
+      way to make internet requests in Python.</p>
+
+    <p class="blurb" style="margin-top:1rem"><strong>The big one: some websites are blocked here.</strong>
+      For safety, web browsers only let a page fetch data from sites that <em>allow</em> it (a rule called
+      <strong>CORS</strong>). Lots of APIs that work perfectly in Thonny will be refused in this editor.
+      When that happens you will see a friendly message explaining it — it is not a mistake in your code.
+      The APIs on this page (Open-Meteo, cat facts, dog facts) are all CORS-friendly.</p>
+
+    <p class="blurb" style="margin-top:1rem"><strong>What this editor's version does not do.</strong>
+      It only copies the most common parts of <code>requests</code>:</p>
+    <table class="ref">
+      <tr><td class="cmd">get &amp; post only</td><td>Other methods like <code>put</code>, <code>delete</code>,
+        <code>head</code> and <code>patch</code> are not available here.</td></tr>
+      <tr><td class="cmd">No custom headers</td><td>You cannot set request <code>headers=</code> or send
+        cookies, so APIs that need an API key in a header will not work here.</td></tr>
+      <tr><td class="cmd">No sessions / auth</td><td><code>requests.Session</code> and <code>auth=</code>
+        (logins) are not supported.</td></tr>
+      <tr><td class="cmd">Fewer response bits</td><td>You get <code>status_code</code>, <code>ok</code>,
+        <code>text</code>, <code>json()</code>, <code>content</code> and <code>raise_for_status()</code>.
+        Extras like <code>response.headers</code> and <code>response.cookies</code> are not included.</td></tr>
+      <tr><td class="cmd">No file downloads</td><td>Streaming large files or downloading images to disk is
+        not supported in the browser editor.</td></tr>
+      <tr><td class="cmd">CORS applies</td><td>As above — only sites that allow browser requests will work
+        here. The real <code>requests</code> on your computer has no such limit.</td></tr>
+    </table>
+    <div class="tip">💡 Stick to <code>requests.get</code> / <code>requests.post</code> with CORS-friendly
+      APIs and read the response with <code>.json()</code> / <code>.text</code>, and your program will
+      behave the same here and with the official library.</div>
+  </section>
+
+  <footer>© 2023-2027 Nicolas Beney. All rights reserved.</footer>
+</div>
+
+<!-- Menu + theme wiring. -->
+<script>
+  (function () {
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll(".theme-switch button");
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      localStorage.setItem("theme", theme);
+      buttons.forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.dataset.themeValue === theme));
+      });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () { applyTheme(b.dataset.themeValue); });
+    });
+    applyTheme(localStorage.getItem("theme") || "system");
+
+    var menu = document.getElementById("menu");
+    var menuBtn = document.getElementById("menuBtn");
+    if (menu && menuBtn) {
+      function setOpen(open) {
+        menu.classList.toggle("open", open);
+        menuBtn.setAttribute("aria-expanded", String(open));
+      }
+      menuBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setOpen(!menu.classList.contains("open"));
+      });
+      document.addEventListener("click", function (e) {
+        if (!menu.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") setOpen(false);
+      });
+    }
+  })();
+</script>
+</body>
+</html>

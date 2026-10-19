@@ -1228,6 +1228,37 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     el.querySelectorAll("input, button, select").forEach((n) => { n.disabled = !on; });
   };
 
+  // ---------- HTTP bridge (requests shim) ----------
+  // Backs a small `requests` shim on the Python side using the browser's
+  // fetch(). Returns a plain object the Python side wraps in a Response. Note:
+  // browser requests are limited by CORS, so many sites that work in Thonny
+  // will be blocked here — we surface that as a friendly error message.
+  globalThis.jsHttpFetch = async (method, url, body, contentType) => {
+    try {
+      const opts = { method: method || "GET" };
+      if (body != null) {
+        opts.body = body;
+        opts.headers = { "Content-Type": contentType || "text/plain" };
+      }
+      const resp = await fetch(url, opts);
+      const text = await resp.text();
+      return {
+        ok: resp.ok,
+        status: resp.status,
+        text: text,
+        error: null,
+      };
+    } catch (e) {
+      // Network error, bad URL, or (most often) a CORS block.
+      return {
+        ok: false,
+        status: 0,
+        text: "",
+        error: String(e && e.message || e),
+      };
+    }
+  };
+
   turtleReset();   // start hidden + blank
 
   pyodide.runPython(`
@@ -1269,6 +1300,18 @@ async def __tick():
 #   * insert "await __tick()"     in the module body and loop bodies
 # so that output appears incrementally without the student writing async code.
 
+# Single leading underscore (not dunder): a leading "__" would be name-mangled
+# to _AsyncRewriter__is_requests_call when referenced inside the rewriter class.
+def _is_requests_call(node):
+    # True for requests.get(...) / requests.post(...): an attribute call where
+    # the method is get/post and the object is the name "requests". Scoped this
+    # tightly so we never await an unrelated .get() (e.g. dict.get()).
+    return (isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("get", "post")
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "requests")
+
 def __collect_async_funcs(tree):
     # Map each top-level-ish function name to the set of function names it
     # calls, and note which call input() directly.
@@ -1298,10 +1341,13 @@ def __collect_async_funcs(tree):
                 calls[self.stack[-1]].add(node.func.id)
                 if node.func.id == "input":
                     uses_input.add(self.stack[-1])
-            # engine.runAndWait() blocks on speech, so it must be awaited;
-            # that forces the enclosing function to become async too.
+            # engine.runAndWait() blocks on speech, and requests.get/post()
+            # go over the network, so both must be awaited; that forces the
+            # enclosing function to become async too.
             if self.stack and (isinstance(node.func, ast.Attribute)
                                and node.func.attr == "runAndWait"):
+                uses_input.add(self.stack[-1])
+            if self.stack and _is_requests_call(node):
                 uses_input.add(self.stack[-1])
             self.generic_visit(node)
 
@@ -1357,13 +1403,16 @@ class _AsyncRewriter(ast.NodeTransformer):
         return node
 
     def _is_async_call(self, node):
-        # Calls we must await: input(), user functions marked async, and the
-        # pyttsx3 engine.runAndWait() method (it blocks on speech).
+        # Calls we must await: input(), user functions marked async, the
+        # pyttsx3 engine.runAndWait() method (blocks on speech), and
+        # requests.get/post() (go over the network via fetch).
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and (
                     node.func.id == "input" or node.func.id in self.async_funcs):
                 return True
             if isinstance(node.func, ast.Attribute) and node.func.attr == "runAndWait":
+                return True
+            if _is_requests_call(node):
                 return True
         return False
 
@@ -2100,6 +2149,114 @@ def _reset_gui():
     jsGuiReset()
 _mod._reset = _reset_gui
 sys.modules["guizero"] = _mod
+`);
+
+  // ---------- A fetch-backed `requests` shim ----------
+  // Mimics the subset of requests students use: get(url) / post(url, ...) and
+  // a Response with status_code, ok, text, json(), content and
+  // raise_for_status(). Backed by the browser fetch() (see jsHttpFetch). The
+  // AST rewriter awaits requests.get/post so the network call does not block.
+  //
+  // Browser requests are limited by CORS: many sites that work in Thonny are
+  // blocked here. We turn those failures into a friendly, kid-readable error.
+  pyodide.runPython(`
+import sys, types, json as _json
+from js import jsHttpFetch
+
+class RequestsError(Exception):
+    pass
+
+# Raised on a network/CORS failure, with a message aimed at young learners.
+class ConnectionError(RequestsError):
+    pass
+
+class HTTPError(RequestsError):
+    pass
+
+_FRIENDLY = (
+    "Could not reach that website from the browser editor. "
+    "This often happens because the site blocks browser requests (CORS). "
+    "Try a CORS-friendly API like Open-Meteo, or run it in Thonny "
+    "after 'pip install requests'."
+)
+
+class Response:
+    def __init__(self, status_code, text, url):
+        self.status_code = status_code
+        self.text = text
+        self.url = url
+
+    @property
+    def ok(self):
+        return 200 <= self.status_code < 400
+
+    @property
+    def content(self):
+        # Real requests returns bytes; give students the UTF-8 bytes.
+        return self.text.encode("utf-8")
+
+    def json(self):
+        return _json.loads(self.text)
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise HTTPError("Request to %s failed with status %d"
+                            % (self.url, self.status_code))
+
+    def __repr__(self):
+        return "<Response [%d]>" % self.status_code
+
+
+async def _do(method, url, data=None, json=None):
+    body = None
+    content_type = None
+    if json is not None:
+        body = _json.dumps(json)
+        content_type = "application/json"
+    elif data is not None:
+        if isinstance(data, dict):
+            # Simple form encoding for dict bodies.
+            from urllib.parse import urlencode
+            body = urlencode(data)
+            content_type = "application/x-www-form-urlencoded"
+        else:
+            body = str(data)
+            content_type = "text/plain"
+    result = await jsHttpFetch(method, url, body, content_type)
+    r = result.to_py() if hasattr(result, "to_py") else result
+    if r["error"]:
+        # Network error or CORS block.
+        raise ConnectionError(_FRIENDLY)
+    return Response(r["status"], r["text"], url)
+
+
+async def get(url, params=None):
+    # Append simple query params if given as a dict.
+    if params:
+        from urllib.parse import urlencode
+        sep = "&" if "?" in url else "?"
+        url = url + sep + urlencode(params)
+    return await _do("GET", url)
+
+async def post(url, data=None, json=None):
+    return await _do("POST", url, data=data, json=json)
+
+
+_mod = types.ModuleType("requests")
+_mod.get = get
+_mod.post = post
+_mod.Response = Response
+_mod.RequestsError = RequestsError
+_mod.ConnectionError = ConnectionError
+_mod.HTTPError = HTTPError
+# Nested exceptions namespace, like requests.exceptions.*
+_exc = types.ModuleType("requests.exceptions")
+_exc.RequestException = RequestsError
+_exc.ConnectionError = ConnectionError
+_exc.HTTPError = HTTPError
+_mod.exceptions = _exc
+sys.modules["requests"] = _mod
+sys.modules["requests.exceptions"] = _exc
 `);
 
   statusEl.textContent = "🐍 Python ready!";

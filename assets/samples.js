@@ -78,6 +78,52 @@ print(a, "x", b, "=", a * b)
 `,
   },
   {
+    name: "🌤️ API: Weather (Open-Meteo)",
+    code: `# Fetch the current weather for London from the free Open-Meteo API.
+# No API key needed!
+import requests
+
+url = "https://api.open-meteo.com/v1/forecast"
+params = {
+    "latitude": 51.51,     # London
+    "longitude": -0.13,
+    "current_weather": True,
+}
+
+response = requests.get(url, params=params)
+data = response.json()
+
+weather = data["current_weather"]
+print("🌡️ Temperature:", weather["temperature"], "°C")
+print("💨 Wind speed:", weather["windspeed"], "km/h")
+`,
+  },
+  {
+    name: "🐶 API: Dog fact",
+    code: `# Get a random dog fact from a free, no-key API.
+import requests
+
+response = requests.get("https://dogapi.dog/api/v2/facts")
+data = response.json()
+
+# The fact is tucked inside the JSON: data -> first item -> attributes -> body
+fact = data["data"][0]["attributes"]["body"]
+print("🐶", fact)
+`,
+  },
+  {
+    name: "🐱 API: Cat fact",
+    code: `# Get a random cat fact from a free, no-key API.
+import requests
+
+response = requests.get("https://catfact.ninja/fact")
+data = response.json()
+
+# This API is simpler: the fact is right at the top of the JSON.
+print("🐱", data["fact"])
+`,
+  },
+  {
     name: "🪟 GUI: hello buttons",
     code: `# A little window with a label and two buttons.
 from guizero import App, Text, PushButton
