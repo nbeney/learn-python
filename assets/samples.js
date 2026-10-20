@@ -229,4 +229,32 @@ for char in text:
         print(char)                    # spaces, punctuation, etc.
 `,
   },
+  {
+    name: "🎨 Rich: colourful text",
+    code: `# Rich makes colourful, styled text easy.
+from rich import print
+
+print("[bold red]Hello[/] [green]world[/] 🌈")
+print("[yellow]You can [underline]underline[/underline] and [italic]slant[/italic] too![/]")
+print("[white on blue] Highlighted [/] and [dim]quiet[/] text.")
+`,
+  },
+  {
+    name: "📊 Rich: table",
+    code: `# A neat table with borders and coloured columns.
+from rich.console import Console
+from rich.table import Table
+
+table = Table(title="🍓 Fruit basket")
+table.add_column("Fruit", style="cyan")
+table.add_column("Count", justify="right", style="magenta")
+table.add_column("Yummy?", justify="center")
+
+table.add_row("Apples", "12", "✅")
+table.add_row("Bananas", "7", "✅")
+table.add_row("Lemons", "3", "😐")
+
+Console().print(table)
+`,
+  },
 ];
