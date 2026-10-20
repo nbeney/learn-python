@@ -257,4 +257,25 @@ table.add_row("Lemons", "3", "😐")
 Console().print(table)
 `,
   },
+  {
+    name: "🌳 Rich: tree",
+    code: `# A tree shows things that branch, like folders or a family of pets.
+from rich.console import Console
+from rich.tree import Tree
+
+tree = Tree("🌳 My stuff")
+
+pets = tree.add("🐾 Pets")
+pets.add("🐶 Dog")
+cats = pets.add("🐱 Cats")
+cats.add("Tom")
+cats.add("Felix")
+
+toys = tree.add("🧸 Toys")
+toys.add("Lego")
+toys.add("Kite")
+
+Console().print(tree)
+`,
+  },
 ];

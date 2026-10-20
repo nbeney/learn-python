@@ -192,14 +192,14 @@
     /* Stacked mode: a capped box below the editor. */
     flex: 0 0 auto;
     max-height: 40vh; overflow: auto;
-    background: #000; color: #d1f7c4;
+    background: #000; color: #ffffff;
     border-radius: 8px; padding: .7rem .9rem; min-height: 2.4rem;
     font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-    font-size: .95rem; white-space: pre-wrap;
-    /* A tight line-height keeps box-drawing characters (Rich tables/panels)
-       tiling without vertical gaps, while 1.15 gives plain text a little more
-       breathing room than a dead-tight 1. */
-    line-height: 1.15;
+    font-size: 1rem; white-space: pre-wrap;
+    /* Box-drawing characters (Rich tables/panels) only tile seamlessly at a
+       tight line-height, so keep it modest; the larger font-size carries most
+       of the readability. 1.2 is about the ceiling before gaps reappear. */
+    line-height: 1.2;
     border: 1px solid var(--border);
     display: flex; flex-direction: column;   /* canvas can grow to fill */
   }
