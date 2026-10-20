@@ -237,12 +237,18 @@ Console().print(Panel("Hello in a box! 🎁", title="Message"))</pre>
   </section>
 
   <section>
-    <h2>➖ Rules &amp; 🌳 trees</h2>
-    <p class="blurb">A rule is a titled divider line. A tree shows items that branch.</p>
+    <h2>➖ Rules</h2>
+    <p class="blurb">A rule is a titled divider line, handy for separating sections of output.</p>
     <pre class="code">from rich.console import Console
+
 console = Console()
 console.rule("[bold]Part One[/]")
 console.print("Some text under the heading.")</pre>
+  </section>
+
+  <section>
+    <h2>🌳 Trees</h2>
+    <p class="blurb">A tree shows items that branch, like folders or a family of pets.</p>
     <pre class="code">from rich.console import Console
 from rich.tree import Tree
 
