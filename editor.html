@@ -196,6 +196,10 @@
     border-radius: 8px; padding: .7rem .9rem; min-height: 2.4rem;
     font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
     font-size: .95rem; white-space: pre-wrap;
+    /* A tight line-height keeps box-drawing characters (Rich tables/panels)
+       tiling without vertical gaps, while 1.15 gives plain text a little more
+       breathing room than a dead-tight 1. */
+    line-height: 1.15;
     border: 1px solid var(--border);
     display: flex; flex-direction: column;   /* canvas can grow to fill */
   }
@@ -1267,10 +1271,15 @@ from js import jsWrite, jsReadLine, jsTick
 
 class _JsOut:
     def __init__(self, is_err): self._is_err = is_err
+    encoding = "utf-8"
     def write(self, s):
         if s: jsWrite(s, self._is_err)
         return len(s)
     def flush(self): pass
+    # Report as a real terminal so libraries like Rich emit ANSI colour codes
+    # (our output pane interprets them). This makes the SAME code that a child
+    # writes here also produce colour in a real terminal.
+    def isatty(self): return True
 
 sys.stdout = _JsOut(False)
 sys.stderr = _JsOut(True)
@@ -2280,11 +2289,22 @@ sys.modules["requests.exceptions"] = _exc
   // an "answer" region and style accordingly.
   let inAnswer = false;
 
+  // ANSI/SGR state so libraries like Rich show colour. `ansiStyle` is the
+  // current text style; `ansiPending` buffers a partial escape sequence that
+  // was split across streaming writes.
+  function freshAnsiStyle() {
+    return { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false };
+  }
+  let ansiStyle = freshAnsiStyle();
+  let ansiPending = "";
+
   function clearOutput(message) {
     outTextEl.textContent = message || "";   // clear text, keep the canvas node
     outEl.classList.remove("awaiting-input");
     activeInput = null;
     inAnswer = false;
+    ansiStyle = freshAnsiStyle();
+    ansiPending = "";
     turtleReset();                           // hide + wipe the turtle canvas
     chartBox.classList.remove("show");       // hide any previous chart box
     chartImg.removeAttribute("src");
@@ -2298,28 +2318,127 @@ sys.modules["requests.exceptions"] = _exc
     chartBox.classList.add("show");
   };
 
-  // Append a chunk, turning \x01..\x02 regions into coloured "answer" spans.
-  function appendOutput(text, cls) {
-    let i = 0;
-    while (i < text.length) {
-      if (inAnswer) {
-        const end = text.indexOf("\x02", i);
-        const slice = end === -1 ? text.slice(i) : text.slice(i, end);
-        if (slice) addSpan(slice, "answer");
-        if (end === -1) { i = text.length; } else { inAnswer = false; i = end + 1; }
-      } else {
-        const start = text.indexOf("\x01", i);
-        const slice = start === -1 ? text.slice(i) : text.slice(i, start);
-        if (slice) addSpan(slice, cls);
-        if (start === -1) { i = text.length; } else { inAnswer = true; i = start + 1; }
+  // Standard ANSI 16-colour palette (names -> CSS), used for 30-37/90-97.
+  const ANSI_16 = [
+    "#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",
+    "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#ffffff",
+  ];
+
+  // Map a 256-colour index to a CSS hex colour (xterm scheme).
+  function ansi256(n) {
+    if (n < 16) return ANSI_16[n];
+    if (n >= 232) {                      // greyscale ramp
+      const v = 8 + (n - 232) * 10;
+      return "rgb(" + v + "," + v + "," + v + ")";
+    }
+    n -= 16;                             // 6x6x6 colour cube
+    const r = Math.floor(n / 36), g = Math.floor((n % 36) / 6), b = n % 6;
+    const c = (x) => (x === 0 ? 0 : 55 + x * 40);
+    return "rgb(" + c(r) + "," + c(g) + "," + c(b) + ")";
+  }
+
+  // Apply a list of SGR codes (the numbers in "\x1b[ ... m") to ansiStyle.
+  function applyAnsiCodes(codes) {
+    for (let k = 0; k < codes.length; k++) {
+      const n = codes[k];
+      if (n === 0) { ansiStyle = freshAnsiStyle(); }
+      else if (n === 1) ansiStyle.bold = true;
+      else if (n === 2) ansiStyle.dim = true;
+      else if (n === 3) ansiStyle.italic = true;
+      else if (n === 4) ansiStyle.underline = true;
+      else if (n === 22) { ansiStyle.bold = false; ansiStyle.dim = false; }
+      else if (n === 23) ansiStyle.italic = false;
+      else if (n === 24) ansiStyle.underline = false;
+      else if (n >= 30 && n <= 37) ansiStyle.fg = ANSI_16[n - 30];
+      else if (n >= 90 && n <= 97) ansiStyle.fg = ANSI_16[n - 90 + 8];
+      else if (n >= 40 && n <= 47) ansiStyle.bg = ANSI_16[n - 40];
+      else if (n >= 100 && n <= 107) ansiStyle.bg = ANSI_16[n - 100 + 8];
+      else if (n === 39) ansiStyle.fg = null;
+      else if (n === 49) ansiStyle.bg = null;
+      else if (n === 38 || n === 48) {
+        // Extended colour: 38;5;N (256) or 38;2;R;G;B (truecolor).
+        const target = n === 38 ? "fg" : "bg";
+        if (codes[k + 1] === 5) {
+          ansiStyle[target] = ansi256(codes[k + 2] | 0);
+          k += 2;
+        } else if (codes[k + 1] === 2) {
+          const r = codes[k + 2] | 0, g = codes[k + 3] | 0, b = codes[k + 4] | 0;
+          ansiStyle[target] = "rgb(" + r + "," + g + "," + b + ")";
+          k += 4;
+        }
       }
     }
+  }
+
+  // Build an inline CSS string from the current ANSI style.
+  function ansiToCss(style) {
+    let css = "";
+    if (style.fg) css += "color:" + style.fg + ";";
+    if (style.bg) css += "background-color:" + style.bg + ";";
+    if (style.bold) css += "font-weight:bold;";
+    if (style.italic) css += "font-style:italic;";
+    if (style.underline) css += "text-decoration:underline;";
+    if (style.dim) css += "opacity:.7;";
+    return css;
+  }
+
+  // Append a chunk of program output. Handles three things interleaved:
+  //   * ANSI/SGR colour codes (\x1b[...m) -> styled spans (for Rich, etc.)
+  //   * typed-answer markers (\x01..\x02) -> the "answer" colour
+  //   * plain text
+  // A partial escape at the end of a chunk is buffered in ansiPending.
+  function appendOutput(text, cls) {
+    text = ansiPending + text;
+    ansiPending = "";
+    let i = 0, n = text.length;
+    let run = "";
+    const flush = () => {
+      if (run) { addSpan(run, cls); run = ""; }
+    };
+    while (i < n) {
+      const ch = text[i];
+      if (ch === "\x1b") {
+        // Escape sequence. We only act on SGR ("\x1b[...m"); others are skipped.
+        if (i + 1 >= n) { ansiPending = text.slice(i); break; }   // wait for more
+        if (text[i + 1] === "[") {
+          // Find the final byte (a letter) of the CSI sequence.
+          let j = i + 2;
+          while (j < n && !/[A-Za-z]/.test(text[j])) j++;
+          if (j >= n) { ansiPending = text.slice(i); break; }     // incomplete
+          flush();
+          if (text[j] === "m") {
+            const body = text.slice(i + 2, j);
+            const codes = body === "" ? [0] : body.split(";").map((x) => parseInt(x || "0", 10));
+            applyAnsiCodes(codes);
+          }
+          // Non-"m" CSI codes (cursor moves, clears) are ignored in A1.
+          i = j + 1;
+        } else {
+          i += 1;   // lone ESC or other escape; drop it
+        }
+      } else if (ch === "\x01") {        // start typed answer
+        flush(); inAnswer = true; i += 1;
+      } else if (ch === "\x02") {        // end typed answer
+        flush(); inAnswer = false; i += 1;
+      } else {
+        run += ch; i += 1;
+      }
+    }
+    flush();
     outEl.scrollTop = outEl.scrollHeight;
   }
 
+  // Create a span for a run of text, styled by the current ANSI state (plus
+  // any base class). The typed-answer colour wins so echoed input stays gold.
   function addSpan(text, cls) {
     const span = document.createElement("span");
-    if (cls) span.className = cls;
+    const css = ansiToCss(ansiStyle);
+    if (inAnswer) {
+      span.className = "answer";
+    } else if (cls) {
+      span.className = cls;
+    }
+    if (css && !inAnswer) span.setAttribute("style", css);
     span.textContent = text;
     outTextEl.appendChild(span);
   }
@@ -2399,6 +2518,56 @@ _plt.show = _show
     return /\bguizero\b/.test(src);
   }
 
+  // ---------- Lazy Rich ----------
+  // Rich prints colours/tables/panels using ANSI codes, which our output pane
+  // now understands. We install it on first use, and force it into "terminal"
+  // mode with truecolour so the SAME code also shows colour in a real
+  // terminal. We never monkeypatch Rich, so kids write ordinary Rich code.
+  let richReady = false;
+  function usesRich(src) {
+    return /\brich\b/.test(src);
+  }
+  // Estimate how many monospace characters fit across the output pane, so Rich
+  // sizes tables/rules to fit (set via the COLUMNS env var before each run).
+  function outputColumns() {
+    // Measure the width of a single monospace character in the output font.
+    const probe = document.createElement("span");
+    probe.textContent = "0".repeat(100);
+    probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;";
+    outTextEl.appendChild(probe);
+    const charW = probe.getBoundingClientRect().width / 100 || 8;
+    probe.remove();
+    const style = getComputedStyle(outEl);
+    const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    const avail = outEl.clientWidth - padX;
+    return Math.max(20, Math.min(200, Math.floor(avail / charW)));
+  }
+  async function ensureRich() {
+    if (richReady) return;
+    const prev = statusEl.textContent;
+    statusEl.style.display = "";
+    statusEl.textContent = "🎨 Loading Rich… (one-time)";
+    await nextFrame();
+    // Rich ships in Pyodide as a pure-Python package; fall back to micropip.
+    try {
+      await pyodide.loadPackage("rich");
+    } catch (e) {
+      await pyodide.loadPackage("micropip");
+      await pyodide.runPythonAsync("import micropip\nawait micropip.install('rich')");
+    }
+    // Force colour + truecolour via the environment, so unmodified Rich code
+    // emits ANSI here (and behaves the same in a real terminal).
+    pyodide.runPython(`
+import os
+os.environ["FORCE_COLOR"] = "1"
+os.environ["COLORTERM"] = "truecolor"
+os.environ["TERM"] = "xterm-256color"
+`);
+    richReady = true;
+    statusEl.textContent = prev;
+    statusEl.style.display = "none";
+  }
+
   async function runCode() {
     const source = view.state.doc.toString();
     runBtn.disabled = true;
@@ -2424,6 +2593,18 @@ _plt.show = _show
         await ensureSpeech();
       } catch (e) {
         appendOutput("Could not start speech: " + String(e && e.message || e), "error");
+        runBtn.disabled = false;
+        return;
+      }
+    }
+    // Install Rich the first time a program needs it, and size it to the pane.
+    if (usesRich(source)) {
+      try {
+        await ensureRich();
+        // Tell Rich how wide the output is so tables/rules fit the box.
+        pyodide.runPython('import os; os.environ["COLUMNS"] = "' + outputColumns() + '"');
+      } catch (e) {
+        appendOutput("Could not load Rich: " + String(e && e.message || e), "error");
         runBtn.disabled = false;
         return;
       }
