@@ -278,4 +278,55 @@ toys.add("Kite")
 Console().print(tree)
 `,
   },
+  {
+    name: "🌀 Turtle: rainbow spiral",
+    code: `# A spiral that changes colour as it grows.
+import turtle as tt
+
+tt.bgcolor("black")
+tt.pensize(2)
+
+for i in range(80):
+    tt.pencolor(tt.hsb(i * 4, 1.0, 1.0))   # cycle through the rainbow
+    tt.forward(i * 3)
+    tt.left(91)
+`,
+  },
+  {
+    name: "⭐ Turtle: star",
+    code: `# A pointy star. Change N to get more points!
+import turtle as tt
+
+N = 5                      # number of points on the star
+angle = 180 - 180 / N      # the turn angle for an N-pointed star
+
+tt.bgcolor("navy")
+tt.pencolor("red")
+tt.fillcolor("yellow")
+tt.pensize(10)
+
+tt.begin_fill()
+for point in range(N):
+    tt.forward(200)
+    tt.right(angle)
+tt.end_fill()
+
+tt.hideturtle()
+`,
+  },
+  {
+    name: "🌸 Turtle: flower",
+    code: `# Draw a flower by spinning a circle around and around.
+import turtle as tt
+
+tt.bgcolor("white")
+tt.pensize(2)
+
+petals = 18
+for i in range(petals):
+    tt.pencolor(tt.hsb(i * (360 / petals), 1.0, 1.0))
+    tt.circle(100)                 # one petal (a full circle)
+    tt.left(360 / petals)          # turn a little before the next
+`,
+  },
 ];
