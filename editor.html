@@ -727,6 +727,21 @@ print(f"🚀 Have an amazing day, {name}! 💖")
 
   refreshFileSelect();
 
+  // If a cheatsheet handed us a snippet (via "Open in editor"), load it into a
+  // NEW file so the learner never loses their current work. The payload lives
+  // in localStorage and is consumed (cleared) immediately.
+  (function loadIncomingSnippet() {
+    try {
+      const raw = localStorage.getItem("learn-python:editor-incoming");
+      if (!raw) return;
+      localStorage.removeItem("learn-python:editor-incoming");
+      const payload = JSON.parse(raw);
+      if (!payload || typeof payload.code !== "string") return;
+      const base = normaliseName((payload.name || "from-cheatsheet")) || "from-cheatsheet.py";
+      createFile(uniqueName(base), payload.code);
+    } catch (_) { /* ignore a malformed or blocked handoff */ }
+  })();
+
   // Load Pyodide once.
   const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
   const pyodide = await loadPyodide();

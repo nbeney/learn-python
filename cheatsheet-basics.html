@@ -407,6 +407,9 @@ else:
   })();
 </script>
 
+<!-- Snippet tools: Copy + Open-in-editor buttons (shared across cheatsheets). -->
+<script src="assets/snippet-tools.js"></script>
+
 <!-- CodeMirror (locally bundled, assets/codemirror.min.js) + Pyodide. -->
 <script type="module">
   // Locally bundled CodeMirror (one copy of @codemirror/state, works offline).
@@ -435,6 +438,17 @@ else:
     btn.textContent = "▶ Run";
     btn.disabled = true; // enabled once Python is ready
     toolbar.appendChild(btn);
+
+    // Copy + Open-in-editor buttons, placed BEFORE the Run button. They read
+    // the live editor contents so edits are copied/opened too. (btn must
+    // already be a child of the toolbar for insertBefore to work.)
+    if (window.SnippetTools) {
+      window.SnippetTools.addToToolbar(
+        toolbar,
+        () => view.state.doc.toString(),
+        { before: btn }
+      );
+    }
 
     const out = document.createElement("div");
     out.className = "output";
