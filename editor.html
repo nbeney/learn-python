@@ -334,11 +334,45 @@
     .output.has-turtle { height: 60vh; }
   }
 
+  /* Status toast: a prominent, centered-at-top notification for app state
+     like "Loading Python" / "Python ready". Non-blocking (pointer-events
+     off) so it never gets in the way of the editor. */
   #status {
-    position: fixed; bottom: 10px; right: 12px;
-    background: var(--card); border: 1px solid var(--border);
-    color: var(--muted); font-size: .8rem;
-    padding: .35rem .7rem; border-radius: 20px;
+    position: fixed; top: 18px; left: 50%;
+    transform: translateX(-50%) translateY(-8px);
+    z-index: 100; pointer-events: none;
+    display: inline-flex; align-items: center; gap: .55rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 5px solid var(--accent);     /* coloured accent by state */
+    color: var(--text); font-size: 1rem; font-weight: 600;
+    padding: .7rem 1.2rem; border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    opacity: 0; transition: opacity .25s ease, transform .25s ease;
+  }
+  /* Visible state (toggled from JS by adding/removing .hidden). */
+  #status:not(.hidden) { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* A small spinner shown while something is loading. */
+  #status::before {
+    content: ""; width: 1.05em; height: 1.05em; flex: 0 0 auto;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: status-spin .7s linear infinite;
+  }
+  /* "Ready"/success state: green accent, no spinner (show a tick instead). */
+  #status.ready {
+    border-left-color: #2da44e;
+  }
+  :root[data-theme="dark"] #status.ready { border-left-color: #3fb950; }
+  #status.ready::before {
+    content: "✅"; width: auto; height: auto;
+    border: none; animation: none; font-size: 1.05em; line-height: 1;
+  }
+  @keyframes status-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    #status::before { animation: none; }
+    #status { transition: opacity .25s ease; }
   }
 
   .hint { color: var(--muted); font-size: .82rem; margin: 0; }
@@ -414,7 +448,7 @@
     </div>
   </div>
 
-  <div id="status">🐍 Loading Python…</div>
+  <div id="status">Loading Python…</div>
 
   <footer>© Nicolas Beney. Licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0 ↗</a>.</footer>
 
@@ -484,6 +518,21 @@
   const { samples } = await import("./assets/samples.js");
 
   const statusEl = document.getElementById("status");
+
+  // Status toast helpers. `setStatus(text)` shows a spinner + message (the
+  // "working" state); `setStatus(text, {ready:true})` shows a green tick for
+  // success. `hideStatus()` fades it out. Returns the previous text so a
+  // caller can restore it (used by the lazy loaders).
+  function setStatus(text, opts) {
+    const prev = statusEl.textContent;
+    statusEl.textContent = text;
+    statusEl.classList.toggle("ready", !!(opts && opts.ready));
+    statusEl.classList.remove("hidden");
+    return prev;
+  }
+  function hideStatus() {
+    statusEl.classList.add("hidden");
+  }
   const outEl = document.getElementById("output");
   const outTextEl = document.getElementById("outText");   // text output (keeps canvas intact)
   const turtleWrap = document.getElementById("turtleWrap");
@@ -2372,8 +2421,8 @@ sys.modules["requests"] = _mod
 sys.modules["requests.exceptions"] = _exc
 `);
 
-  statusEl.textContent = "🐍 Python ready!";
-  setTimeout(() => (statusEl.style.display = "none"), 2000);
+  setStatus("Python ready!", { ready: true });
+  setTimeout(hideStatus, 2000);
   runBtn.disabled = false;
   // Put the cursor at the end of the document, then focus the editor. Skip
   // focusing on touch devices so the on-screen keyboard does not pop up.
@@ -2563,9 +2612,7 @@ sys.modules["requests.exceptions"] = _exc
   }
   async function ensureMatplotlib() {
     if (matplotlibReady) return;
-    const prev = statusEl.textContent;
-    statusEl.style.display = "";
-    statusEl.textContent = "📊 Loading charts… (one-time)";
+    setStatus("Loading charts… (one-time)");
     await nextFrame();
     await pyodide.loadPackage("matplotlib");
     // Configure once: use the Agg backend and send figures to JS as PNGs.
@@ -2590,8 +2637,7 @@ def _show(*args, **kwargs):
 _plt.show = _show
 `);
     matplotlibReady = true;
-    statusEl.textContent = prev;
-    statusEl.style.display = "none";
+    hideStatus();
   }
 
   // ---------- Lazy speech (pyttsx3 shim) ----------
@@ -2604,14 +2650,11 @@ _plt.show = _show
   }
   async function ensureSpeech() {
     if (speechReady) return;
-    const prev = statusEl.textContent;
-    statusEl.style.display = "";
-    statusEl.textContent = "🔊 Preparing speech…";
+    setStatus("Preparing speech…");
     await nextFrame();
     if (globalThis.jsSpeechWarm) await globalThis.jsSpeechWarm();
     speechReady = true;
-    statusEl.textContent = prev;
-    statusEl.style.display = "none";
+    hideStatus();
   }
 
   // ---------- GUI (guizero shim) detection ----------
@@ -2648,9 +2691,7 @@ _plt.show = _show
   }
   async function ensureRich() {
     if (richReady) return;
-    const prev = statusEl.textContent;
-    statusEl.style.display = "";
-    statusEl.textContent = "🎨 Loading Rich… (one-time)";
+    setStatus("Loading Rich… (one-time)");
     await nextFrame();
     // Rich ships in Pyodide as a pure-Python package; fall back to micropip.
     try {
@@ -2668,8 +2709,7 @@ os.environ["COLORTERM"] = "truecolor"
 os.environ["TERM"] = "xterm-256color"
 `);
     richReady = true;
-    statusEl.textContent = prev;
-    statusEl.style.display = "none";
+    hideStatus();
   }
 
   async function runCode() {
