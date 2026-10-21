@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🗂️ File Manager</title>
+
+<!-- Shared snake favicon across all pages. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐍</text></svg>" />
+
+<!-- Apply the saved theme before paint to avoid a flash of the wrong colours. -->
+<script>
+  (function () {
+    var t = localStorage.getItem("theme") || "system";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+
+<style>
+  /* Light theme is the base. */
+  :root {
+    --bg: #f6f8fa;
+    --card: #ffffff;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --border: #d0d7de;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --border: #30363d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="system"], :root:not([data-theme]) {
+      --bg: #0d1117;
+      --card: #161b22;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #58a6ff;
+      --border: #30363d;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2.5rem 1rem 4rem;
+  }
+
+  .wrap { max-width: 880px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 1.6rem; }
+  header h1 { font-size: 2.4rem; margin: 0 0 .3rem; }
+  header p { color: var(--muted); margin: 0; font-size: 1.05rem; }
+
+  .home-emoji { color: inherit; text-decoration: none; cursor: pointer; }
+  .home-emoji:hover { filter: brightness(1.15); }
+
+  /* Toolbar of global actions. */
+  .actions {
+    display: flex; flex-wrap: wrap; gap: .5rem; align-items: center;
+    margin-bottom: 1rem;
+  }
+  .btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font: inherit; font-size: .9rem; font-weight: 600;
+    padding: .45rem .9rem; cursor: pointer; line-height: 1;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.danger:hover { border-color: #cf222e; color: #cf222e; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .spacer { flex: 1 1 auto; }
+
+  /* Search box. */
+  .search {
+    display: flex; align-items: center; gap: .4rem;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: .3rem .6rem; min-width: 220px;
+  }
+  .search input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--text); font: inherit; font-size: .9rem;
+  }
+  .search .clear {
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); font-size: 1rem; line-height: 1; padding: 0 .2rem;
+  }
+
+  /* File list. */
+  .list {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .row {
+    display: flex; align-items: center; gap: .7rem;
+    padding: .6rem .9rem;
+    border-top: 1px solid var(--border);
+  }
+  .row:first-child { border-top: none; }
+  .row.head {
+    font-size: .78rem; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--muted); font-weight: 700; background: rgba(127,127,127,.06);
+  }
+  .row.current { background: rgba(88,166,255,.10); }
+  .row input[type="checkbox"] { width: 1.05rem; height: 1.05rem; flex: 0 0 auto; }
+
+  .fname {
+    flex: 1 1 auto; min-width: 0;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .fname .namelink {
+    color: inherit; text-decoration: none; cursor: pointer; border-radius: 3px;
+  }
+  .fname .namelink:hover { color: var(--accent); text-decoration: underline; }
+  .fname .badge {
+    margin-left: .5rem; font-family: inherit; font-size: .7rem; font-weight: 700;
+    color: var(--accent); border: 1px solid var(--accent); border-radius: 20px;
+    padding: 0 .45rem; vertical-align: middle;
+  }
+  .fname mark { background: #ffd866; color: #1f2328; border-radius: 3px; padding: 0 .1rem; }
+  .meta { flex: 0 0 auto; color: var(--muted); font-size: .8rem; width: 8rem; text-align: right; }
+
+  .rowbtns { flex: 0 0 auto; display: flex; gap: .25rem; }
+  .iconbtn {
+    background: transparent; border: 1px solid transparent; border-radius: 7px;
+    cursor: pointer; font-size: 1rem; line-height: 1; padding: .3rem .4rem; color: var(--text);
+  }
+  .iconbtn:hover { border-color: var(--border); background: rgba(127,127,127,.10); }
+
+  .empty { padding: 2rem; text-align: center; color: var(--muted); }
+  .matchline {
+    width: 100%; margin: .2rem 0 0 1.75rem; padding: 0; color: var(--muted);
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .8rem;
+  }
+  .matchline mark { background: #ffd866; color: #1f2328; }
+
+  .selbar { color: var(--muted); font-size: .85rem; margin: .8rem 0 0; }
+
+  footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 2rem; }
+
+  /* ---------- Corner menu (navigation + theme) ---------- */
+  .menu {
+    position: fixed; top: 12px; z-index: 50;
+    left: 0; right: 0; margin: 0 auto;
+    width: calc(100% - 2rem); max-width: 880px;
+    display: flex; justify-content: flex-end; pointer-events: none;
+  }
+  .menu > * { pointer-events: auto; }
+  .menu-btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    font-size: 1.2rem; line-height: 1; cursor: pointer;
+    width: 42px; height: 42px;
+  }
+  .menu-btn:hover { border-color: var(--accent); }
+  .menu-panel {
+    position: absolute; top: 48px; right: 0; min-width: 180px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: .4rem;
+    box-shadow: 0 10px 24px rgba(0,0,0,.22); display: none;
+  }
+  .menu.open .menu-panel { display: block; }
+  .menu-panel a {
+    display: block; text-decoration: none; color: var(--text);
+    font-size: .95rem; padding: .5rem .6rem; border-radius: 8px;
+  }
+  .menu-panel a:hover { background: rgba(127,127,127,.14); }
+  .menu-panel a[aria-current="page"] {
+    color: var(--muted); font-weight: 600; pointer-events: none;
+  }
+  .menu-panel a[aria-current="page"]::after { content: " ●"; color: var(--accent); }
+  .menu-sep { height: 1px; background: var(--border); margin: .4rem .2rem; }
+  .menu-label { font-size: .75rem; color: var(--muted); padding: .2rem .6rem; }
+  .theme-switch { display: flex; gap: .15rem; padding: .2rem .4rem .3rem; }
+  .theme-switch button {
+    flex: 1; background: transparent; border: 1px solid var(--border);
+    cursor: pointer; color: var(--muted); font-size: .95rem; line-height: 1;
+    padding: .4rem; border-radius: 8px;
+  }
+  .theme-switch button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .theme-switch button:hover { color: var(--text); }
+  .theme-switch button[aria-pressed="true"]:hover { color: #fff; }
+
+  .toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--card); border: 1px solid var(--border);
+    border-left: 5px solid var(--accent);
+    color: var(--text); font-size: .9rem; font-weight: 600;
+    padding: .6rem 1rem; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    opacity: 0; transition: opacity .25s ease; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { border-left-color: #cf222e; }
+  :root[data-theme="dark"] .toast.error { border-left-color: #f85149; }
+</style>
+</head>
+<body>
+
+<!-- Corner menu: navigation + theme. Shared across pages. -->
+<nav class="menu" id="menu">
+  <button class="menu-btn" id="menuBtn" aria-haspopup="true" aria-expanded="false" aria-label="Menu">☰</button>
+  <div class="menu-panel" role="menu">
+    <a href="index.html" role="menuitem">🏠 Home</a>
+    <a href="cheatsheet.html" role="menuitem">📖 Cheatsheets</a>
+    <a href="shell.html" role="menuitem">⌨️ Shell</a>
+    <a href="editor.html" role="menuitem">📝 Editor</a>
+    <a href="file-manager.html" role="menuitem" aria-current="page">🗂️ Files</a>
+    <div class="menu-sep"></div>
+    <div class="menu-label">Theme</div>
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button data-theme-value="light"  title="Light">☀️</button>
+      <button data-theme-value="dark"   title="Dark">🌙</button>
+      <button data-theme-value="system" title="Match system">💻</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header>
+    <h1><a href="index.html" class="home-emoji" title="Home" aria-label="Home">🗂️</a> File Manager</h1>
+    <p>Manage the Python files saved in your browser.</p>
+  </header>
+
+  <div class="actions">
+    <button class="btn primary" id="newBtn">➕ New</button>
+    <button class="btn" id="importBtn">📥 Import ZIP</button>
+    <button class="btn" id="exportBtn">📦 Export selected</button>
+    <button class="btn danger" id="deleteBtn">🗑️ Delete selected</button>
+    <span class="spacer"></span>
+    <div class="search">
+      <span aria-hidden="true">🔍</span>
+      <input id="searchInput" type="search" placeholder="Find in names & contents…" aria-label="Find files" />
+      <button class="clear" id="searchClear" title="Clear" aria-label="Clear search">✕</button>
+    </div>
+  </div>
+
+  <div class="list" id="list"></div>
+  <p class="selbar" id="selbar"></p>
+
+  <!-- Hidden file input used for ZIP import. -->
+  <input type="file" id="zipInput" accept=".zip,application/zip" style="display:none" />
+
+  <footer>© Nicolas Beney. Licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0 ↗</a>.</footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="assets/minizip.js"></script>
+<script src="assets/file-manager.js"></script>
+
+<!-- Menu + theme wiring (shared pattern). -->
+<script>
+  (function () {
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll(".theme-switch button");
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      localStorage.setItem("theme", theme);
+      buttons.forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.dataset.themeValue === theme));
+      });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () { applyTheme(b.dataset.themeValue); });
+    });
+    applyTheme(localStorage.getItem("theme") || "system");
+
+    var menu = document.getElementById("menu");
+    var menuBtn = document.getElementById("menuBtn");
+    if (menu && menuBtn) {
+      function setOpen(open) {
+        menu.classList.toggle("open", open);
+        menuBtn.setAttribute("aria-expanded", String(open));
+      }
+      menuBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setOpen(!menu.classList.contains("open"));
+      });
+      document.addEventListener("click", function (e) {
+        if (!menu.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") setOpen(false);
+      });
+    }
+  })();
+</script>
+</body>
+</html>

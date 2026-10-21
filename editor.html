@@ -102,6 +102,8 @@
     padding: .4rem .55rem; font-size: .9rem; line-height: 1;
   }
   .icon-btn:hover { border-color: var(--accent); }
+  /* The file-manager control is an <a> styled as an icon button. */
+  a.icon-btn { display: inline-flex; align-items: center; text-decoration: none; }
   /* Let the hint wrap to a new line on narrow screens. */
   .toolbar { flex-wrap: wrap; }
 
@@ -391,6 +393,7 @@
     <a href="cheatsheet.html" role="menuitem">📖 Cheatsheets</a>
     <a href="shell.html" role="menuitem">⌨️ Shell</a>
     <a href="editor.html" role="menuitem" aria-current="page">📝 Editor</a>
+    <a href="file-manager.html" role="menuitem">🗂️ Files</a>
     <div class="menu-sep"></div>
     <a href="#" id="toolbarToggle" role="menuitemcheckbox" aria-checked="false">⬜ Toolbar</a>
     <div class="menu-sep"></div>
@@ -416,6 +419,9 @@
       <button id="fileCopy"   class="btn icon-btn" title="Make a copy">📄</button>
       <button id="fileRename" class="btn icon-btn" title="Rename file">✏️</button>
       <button id="fileDelete" class="btn icon-btn" title="Delete file">🗑️</button>
+      <a id="fileManager" class="btn icon-btn" href="file-manager.html"
+         title="Open the file manager (import/export, search, bulk actions)"
+         role="button">🗂️</a>
     </span>
 
     <!-- Samples: load an example program into the current file. -->
