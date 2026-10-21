@@ -74,6 +74,9 @@
   }
   .run-btn { background: var(--accent); color: #fff; }
   .run-btn:disabled { opacity: .6; cursor: wait; }
+  /* While a program is running the same button becomes a red Stop button. */
+  .run-btn.stop-btn { background: #cf222e; }
+  :root[data-theme="dark"] .run-btn.stop-btn { background: #da3633; }
 
   /* Run button row, right-aligned directly under the editor. */
   .run-row { display: flex; justify-content: flex-end; }
@@ -586,7 +589,7 @@ print(f"🚀 Have an amazing day, {name}! 💖")
       // Prec.highest ensures Mod-Enter beats basicSetup's default Enter
       // binding; otherwise Ctrl/Cmd-Enter just inserts a newline.
       Prec.highest(keymap.of([
-        { key: "Mod-Enter", preventDefault: true, run: () => { runCode(); return true; } },
+        { key: "Mod-Enter", preventDefault: true, run: () => { if (!isRunning) runCode(); return true; } },
       ])),
       // Tab indents, Shift-Tab dedents (uses the 4-space indentUnit above).
       keymap.of([indentWithTab]),
@@ -761,8 +764,58 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   // place an inline text field right where the cursor is in the output box,
   // focus it, and resolve the Promise when the user presses Enter. The typed
   // text is then echoed (coloured) followed by a newline, like a real shell.
+  // Cancellation: set by the Stop button. jsTick() and jsReadLine() both
+  // observe it so a running program can be interrupted — including tight
+  // infinite loops and programs blocked waiting on input().
+  let stopRequested = false;
+  let rejectActiveInput = null;    // lets Stop unblock a pending input()
+
+  globalThis.jsStopRequested = () => stopRequested;
+
+  // Request the running program to stop at its next tick or input().
+  function requestStop() {
+    stopRequested = true;
+    runBtn.disabled = true;          // avoid double-clicks while it unwinds
+    runBtn.textContent = "⏹ Stopping…";
+    // If the program is waiting on input(), unblock it now (resolves the
+    // pending jsReadLine() promise with the stop sentinel).
+    if (rejectActiveInput) {
+      const unblock = rejectActiveInput;
+      rejectActiveInput = null;
+      unblock();
+    }
+  }
+
+  // Flip the button between Run and Stop. While a program runs, the same
+  // button becomes a red Stop button; when it ends it returns to ▶ Run.
+  let isRunning = false;
+  function enterRunningState() {
+    isRunning = true;
+    stopRequested = false;           // fresh run: clear any previous request
+    runBtn.disabled = false;         // keep it clickable so Stop works
+    runBtn.textContent = "⏹ Stop";
+    runBtn.classList.add("stop-btn");
+  }
+  function exitRunningState() {
+    isRunning = false;
+    runBtn.disabled = false;
+    runBtn.textContent = "▶ Run";
+    runBtn.classList.remove("stop-btn");
+  }
+
+  // Sentinel returned by jsReadLine() when the program is stopped while
+  // waiting for input. Python checks for this exact object and raises its
+  // internal _Stopped. We resolve (never reject) so Pyodide doesn't try to
+  // turn a JS rejection into a Python exception (which fails for non-Error
+  // reject values with "invalid exception object").
+  const STOP_SENTINEL = "\x00__STOPPED__\x00";
+  globalThis.jsReadLineStopSentinel = () => STOP_SENTINEL;
+
   let activeInput = null;
   globalThis.jsReadLine = () => new Promise((resolve) => {
+    // If a stop was already requested, don't even show the field.
+    if (stopRequested) { resolve(STOP_SENTINEL); return; }
+
     const field = document.createElement("input");
     field.type = "text";
     field.className = "inline-input";
@@ -781,12 +834,22 @@ print(f"🚀 Have an amazing day, {name}! 💖")
         const typed = field.value;
         field.remove();
         activeInput = null;
+        rejectActiveInput = null;
         outEl.classList.remove("awaiting-input");
         // Echo the answer (coloured) + newline into the normal output stream.
         appendOutput("\x01" + typed + "\x02\n", null);
         resolve(typed);
       }
     });
+
+    // Stop while waiting for input: remove the field and RESOLVE the Promise
+    // with the stop sentinel, which Python turns into a clean stop.
+    rejectActiveInput = () => {
+      field.remove();
+      activeInput = null;
+      outEl.classList.remove("awaiting-input");
+      resolve(STOP_SENTINEL);
+    };
 
     outTextEl.appendChild(field);
     outEl.classList.add("awaiting-input");
@@ -811,6 +874,9 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   let lastTick = 0;
   let wroteSinceTick = false;
   globalThis.jsTick = () => {
+    // When a stop is requested, always yield a frame first (so the final
+    // output paints) — Python reads jsStopRequested() right after and stops.
+    if (stopRequested) { return nextFrame(); }
     const now = performance.now();
     if (wroteSinceTick || now - lastTick > 50) {
       wroteSinceTick = false;
@@ -1285,7 +1351,18 @@ print(f"🚀 Have an amazing day, {name}! 💖")
 
   pyodide.runPython(`
 import builtins, sys, ast, asyncio, traceback
-from js import jsWrite, jsReadLine, jsTick
+from js import jsWrite, jsReadLine, jsTick, jsStopRequested, jsReadLineStopSentinel
+
+# Value jsReadLine() resolves with when the user pressed Stop while an input()
+# was waiting. We compare against it to raise a clean stop (resolving instead
+# of rejecting the JS promise avoids Pyodide's "invalid exception object").
+_STOP_SENTINEL = jsReadLineStopSentinel()
+
+# Raised to unwind the program when the Stop button is pressed. Inherits from
+# BaseException (not Exception) so a student's "except Exception" can't swallow
+# it — Stop always works, just like KeyboardInterrupt.
+class _Stopped(BaseException):
+    pass
 
 class _JsOut:
     def __init__(self, is_err): self._is_err = is_err
@@ -1308,13 +1385,19 @@ sys.stderr = _JsOut(True)
 async def input(prompt=""):
     if prompt:
         print(prompt, end="")   # streamed to the panel before the field
-    return await jsReadLine()
+    answer = await jsReadLine()
+    if answer == _STOP_SENTINEL:
+        # Stop was pressed while this input() was waiting.
+        raise _Stopped()
+    return answer
 
 builtins.input = input
 
 async def __tick():
-    # Yield to the browser so queued output paints.
+    # Yield to the browser so queued output paints, then stop if requested.
     await jsTick()
+    if jsStopRequested():
+        raise _Stopped()
 
 # --- Make input() work anywhere, with incremental output ------------------
 # Because our async input() must be awaited, any function that uses input()
@@ -1486,6 +1569,9 @@ async def __run_user_code(source):
         code = compile(module, "<program>", "exec")
         exec(code, g)
         await g["__main"]()
+    except _Stopped:
+        # User pressed Stop: show a calm message, not a traceback.
+        sys.stdout.write("\\n⏹ Stopped.\\n")
     except SyntaxError:
         sys.stderr.write(traceback.format_exc())
     except BaseException:
@@ -2588,7 +2674,7 @@ os.environ["TERM"] = "xterm-256color"
 
   async function runCode() {
     const source = view.state.doc.toString();
-    runBtn.disabled = true;
+    enterRunningState();             // button becomes ⏹ Stop; clears stop flag
     clearOutput("");                 // (1) clear previous output on every run
     // Reset the turtle module's default-turtle singleton so a program that
     // uses turtle re-reveals the canvas (clearOutput hides it every run).
@@ -2601,7 +2687,7 @@ os.environ["TERM"] = "xterm-256color"
         await ensureMatplotlib();
       } catch (e) {
         appendOutput("Could not load charts: " + String(e && e.message || e), "error");
-        runBtn.disabled = false;
+        exitRunningState();
         return;
       }
     }
@@ -2611,7 +2697,7 @@ os.environ["TERM"] = "xterm-256color"
         await ensureSpeech();
       } catch (e) {
         appendOutput("Could not start speech: " + String(e && e.message || e), "error");
-        runBtn.disabled = false;
+        exitRunningState();
         return;
       }
     }
@@ -2623,7 +2709,7 @@ os.environ["TERM"] = "xterm-256color"
         pyodide.runPython('import os; os.environ["COLUMNS"] = "' + outputColumns() + '"');
       } catch (e) {
         appendOutput("Could not load Rich: " + String(e && e.message || e), "error");
-        runBtn.disabled = false;
+        exitRunningState();
         return;
       }
     }
@@ -2645,7 +2731,7 @@ os.environ["TERM"] = "xterm-256color"
       appendOutput(String(e && e.message || e), "error");
     } finally {
       run.destroy();
-      runBtn.disabled = false;
+      exitRunningState();            // button returns to ▶ Run
       // Return focus to the editor when the run ends — but NOT on touch
       // devices, where focusing pops the on-screen keyboard and hides the
       // output box. There the user can tap the editor to resume typing.
@@ -2653,7 +2739,11 @@ os.environ["TERM"] = "xterm-256color"
     }
   }
 
-  runBtn.addEventListener("click", runCode);
+  // The one button toggles: Run when idle, Stop while a program is running.
+  runBtn.addEventListener("click", () => {
+    if (isRunning) requestStop();
+    else runCode();
+  });
 </script>
 </body>
 </html>
