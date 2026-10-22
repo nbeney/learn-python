@@ -74,7 +74,13 @@
     border: none; font-weight: 600; font-size: .9rem;
     padding: .45rem 1rem; border-radius: 8px; cursor: pointer;
   }
-  .run-btn { background: var(--accent); color: #fff; }
+  .run-btn {
+    background: var(--accent); color: #fff;
+    /* Pin the box height so the ▶ Run and ⏹ Stop glyphs (which have different
+       intrinsic emoji line boxes) render at exactly the same height. */
+    display: inline-flex; align-items: center; justify-content: center;
+    line-height: 1.2; height: 2.1rem;
+  }
   .run-btn:disabled { opacity: .6; cursor: wait; }
   /* While a program is running the same button becomes a red Stop button. */
   .run-btn.stop-btn { background: #cf222e; }
@@ -2865,6 +2871,61 @@ os.environ["TERM"] = "xterm-256color"
     }
   }
 
+  // List files under a Pyodide_FS directory, recursively, returning paths
+  // relative to `root` (e.g. "save.txt", "scores/high.json"). Missing dir -> [].
+  function listFsDir(root) {
+    const FS = pyodide.FS;
+    const out = [];
+    function walk(dir, prefix) {
+      let names;
+      try { names = FS.readdir(dir); } catch (_) { return; }
+      for (const n of names) {
+        if (n === "." || n === "..") continue;
+        const full = dir + "/" + n;
+        const rel = prefix ? prefix + "/" + n : n;
+        let mode;
+        try { mode = FS.stat(full).mode; } catch (_) { continue; }
+        if (FS.isDir(mode)) walk(full, rel);
+        else out.push(rel);
+      }
+    }
+    walk(root, "");
+    return out;
+  }
+
+  // After a run, persist a snapshot of WORKDIR/data back into the File_Store
+  // `data` area so runtime-created files survive a refresh. Removes File_Store
+  // `data` records whose files no longer exist on disk. Only touches `data/*`,
+  // so scripts/assets are never affected (store isolation by key space).
+  async function syncDataBack() {
+    const FS = pyodide.FS;
+    const dataRoot = WORKDIR + "/data";
+    const onDisk = listFsDir(dataRoot);
+
+    // Write/overwrite every on-disk data file into the File_Store.
+    const present = Object.create(null);
+    for (const rel of onDisk) {
+      present[rel] = true;
+      const bytes = FS.readFile(dataRoot + "/" + rel);   // Uint8Array
+      // Store as text when it decodes cleanly as UTF-8, else as a Blob.
+      let content;
+      try {
+        content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch (_) {
+        content = new Blob([bytes]);
+      }
+      await FileStore.write("data/" + rel, content, { area: "data" });
+    }
+
+    // Remove File_Store data records that were deleted on disk during the run.
+    const stored = await FileStore.list("data");
+    for (const m of stored) {
+      if (!present[m.name]) {
+        try { await FileStore.remove(m.path); } catch (_) { /* already gone */ }
+      }
+    }
+  }
+
   async function runCode() {
     const source = view.state.doc.toString();
     enterRunningState();             // button becomes ⏹ Stop; clears stop flag
@@ -2933,6 +2994,14 @@ os.environ["TERM"] = "xterm-256color"
       appendOutput(String(e && e.message || e), "error");
     } finally {
       run.destroy();
+      // Persist a snapshot of the data/ directory back into the File_Store so
+      // files the program wrote survive a refresh. A failure here must not
+      // crash the editor — show a message and carry on.
+      try {
+        await syncDataBack();
+      } catch (e) {
+        appendOutput("Couldn't save your data files: " + String(e && e.message || e), "error");
+      }
       exitRunningState();            // button returns to ▶ Run
       // Return focus to the editor when the run ends — but NOT on touch
       // devices, where focusing pops the on-screen keyboard and hides the
