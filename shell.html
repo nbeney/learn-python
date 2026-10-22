@@ -257,6 +257,10 @@
   })();
 </script>
 
+<!-- IndexedDB-backed file store (shared with the editor & file manager).
+     Classic script so window.FileStore is defined before the module below. -->
+<script src="assets/file-store.js"></script>
+
 <script type="module">
   const logEl = document.getElementById("log");
   const cmdEl = document.getElementById("cmd");
@@ -296,6 +300,97 @@
   // ----- Load Pyodide and build a persistent interactive console -----
   const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
   const pyodide = await loadPyodide();
+
+  // ----- Wire the shell to the shared file store -----
+  // The shell shares the editor/file-manager's IndexedDB store. We stage all
+  // stored files into Pyodide's working dir so `import main`, `glob.glob("*")`
+  // and `open("data/x.txt")` just work, and we sync the data/ directory back
+  // after each command so writes persist (and show up in the file manager).
+  const WORKDIR = "/home/pyodide";
+  const ASSET_AREAS = ["images", "sounds", "music", "data"];
+
+  function mkdirp(path) {
+    const parts = path.split("/").filter(Boolean);
+    let cur = "";
+    for (const p of parts) {
+      cur += "/" + p;
+      try { pyodide.FS.mkdir(cur); } catch (_) { /* exists */ }
+    }
+  }
+
+  // Copy every stored file into Pyodide_FS: scripts at WORKDIR/<name>, assets
+  // at WORKDIR/<area>/<name>. Makes WORKDIR the CWD and importable.
+  async function stageProject() {
+    const FS = pyodide.FS;
+    mkdirp(WORKDIR);
+    for (const area of ASSET_AREAS) mkdirp(WORKDIR + "/" + area);
+    pyodide.runPython(
+      "import os, sys\n" +
+      "os.chdir(" + JSON.stringify(WORKDIR) + ")\n" +
+      "if " + JSON.stringify(WORKDIR) + " not in sys.path: sys.path.insert(0, " + JSON.stringify(WORKDIR) + ")\n"
+    );
+    const scripts = await FileStore.list("scripts");
+    for (const m of scripts) {
+      const rec = await FileStore.read(m.path);
+      FS.writeFile(WORKDIR + "/" + m.name, typeof rec.content === "string" ? rec.content : "");
+    }
+    for (const area of ASSET_AREAS) {
+      const metas = await FileStore.list(area);
+      for (const m of metas) {
+        const rec = await FileStore.read(m.path);
+        const target = WORKDIR + "/" + area + "/" + m.name;
+        if (rec.content instanceof Blob) {
+          FS.writeFile(target, new Uint8Array(await rec.content.arrayBuffer()));
+        } else {
+          FS.writeFile(target, String(rec.content));
+        }
+      }
+    }
+  }
+
+  // Recursively list files under a Pyodide_FS directory (paths relative to it).
+  function listFsDir(root) {
+    const FS = pyodide.FS;
+    const out = [];
+    function walk(dir, prefix) {
+      let names;
+      try { names = FS.readdir(dir); } catch (_) { return; }
+      for (const n of names) {
+        if (n === "." || n === "..") continue;
+        const full = dir + "/" + n;
+        const rel = prefix ? prefix + "/" + n : n;
+        let mode;
+        try { mode = FS.stat(full).mode; } catch (_) { continue; }
+        if (FS.isDir(mode)) walk(full, rel);
+        else out.push(rel);
+      }
+    }
+    walk(root, "");
+    return out;
+  }
+
+  // Persist WORKDIR/data back into the File_Store `data` area. Mirrors the
+  // editor's syncDataBack(): only touches `data/*` keys.
+  async function syncDataBack() {
+    const FS = pyodide.FS;
+    const dataRoot = WORKDIR + "/data";
+    const onDisk = listFsDir(dataRoot);
+    const present = Object.create(null);
+    for (const rel of onDisk) {
+      present[rel] = true;
+      const bytes = FS.readFile(dataRoot + "/" + rel);
+      let content;
+      try { content = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+      catch (_) { content = new Blob([bytes]); }
+      await FileStore.write("data/" + rel, content, { area: "data" });
+    }
+    const stored = await FileStore.list("data");
+    for (const m of stored) {
+      if (!present[m.name]) {
+        try { await FileStore.remove(m.path); } catch (_) {}
+      }
+    }
+  }
 
   // Create a console that streams stdout/stderr into our log. We subclass
   // PyodideConsole so we can rewrite input(...) into "await input(...)",
@@ -385,6 +480,14 @@ builtins.input = input
   append(`Python ${pyVersion} (Pyodide) — a real interactive shell 🐍\n`, "banner");
   append('Type "help(object)" for help on something.\n\n', "banner");
 
+  // Bring the learner's saved files into this shell session before it opens.
+  try {
+    await FileStore.init();
+    await stageProject();
+  } catch (e) {
+    append("(Couldn't load your saved files: " + String(e && e.message || e) + ")\n", "banner");
+  }
+
   setStatus("Python ready!", { ready: true });
   setTimeout(hideStatus, 2000);
   cmdEl.disabled = false;
@@ -455,6 +558,9 @@ builtins.input = input
       append(cleanTraceback(String(e.message || e)), "error");
     } finally {
       future.destroy?.();
+      // Persist anything the command wrote under data/ so it survives and
+      // shows up in the file manager. Never let a sync error break the REPL.
+      try { await syncDataBack(); } catch (_) { /* keep the shell usable */ }
       awaiting = false;
       cmdEl.disabled = false;
       promptEl.textContent = ">>> ";
