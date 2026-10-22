@@ -1,37 +1,44 @@
-// file-manager.js — manage the Python files the editor keeps in localStorage.
-// Shares the editor's storage schema so changes show up in the editor:
-//   editor:files   -> JSON { "name.py": "code", ... }
-//   editor:current -> the active file name in the editor
+// file-manager.js — manage the Python files stored by the editor.
+// Files live in IndexedDB via window.FileStore (assets/file-store.js); this
+// module reads/writes through that async API so changes show up in the editor
+// (and vice-versa, via FileStore's cross-tab change notifications).
+//
+// Phase 1 operates on the "scripts" area only and presents bare file names
+// (e.g. "main.py"); FileStore keys scripts as "scripts/<name>".
 //
 // Depends on assets/minizip.js (window.MiniZip) for ZIP import/export.
 
 (function () {
   "use strict";
 
-  var FILES_KEY = "editor:files";
-  var CURRENT_KEY = "editor:current";
-  var DEFAULT_NAME = "main.py";
-  var STARTER = "# New file\n\n";
+  var SCRIPTS_AREA = "scripts";
+  var toKey = function (name) { return SCRIPTS_AREA + "/" + name; };
+  var toName = function (path) {
+    return path.indexOf("/") === -1 ? path : path.slice(path.indexOf("/") + 1);
+  };
 
-  // ---------- Storage ----------
-  function loadFiles() {
-    try {
-      var raw = JSON.parse(localStorage.getItem(FILES_KEY));
-      if (raw && typeof raw === "object" && Object.keys(raw).length) return raw;
-    } catch (_) { /* fall through */ }
-    return { [DEFAULT_NAME]: STARTER };
+  // ---------- In-memory cache (name -> code), hydrated from FileStore ----------
+  var files = {};
+  var activeName = null;      // bare name of the file open in the editor
+
+  function hydrate() {
+    return FileStore.list(SCRIPTS_AREA).then(function (metas) {
+      return Promise.all(metas.map(function (m) {
+        return FileStore.read(m.path).then(function (rec) {
+          return { name: toName(m.path), content: typeof rec.content === "string" ? rec.content : "" };
+        });
+      }));
+    }).then(function (entries) {
+      var next = {};
+      entries.forEach(function (e) { next[e.name] = e.content; });
+      files = next;
+      return FileStore.getActive();
+    }).then(function (activePath) {
+      activeName = toName(activePath);
+    });
   }
-  function saveFiles(f) { localStorage.setItem(FILES_KEY, JSON.stringify(f)); }
-  function getCurrent() {
-    var n = localStorage.getItem(CURRENT_KEY);
-    return n && files[n] !== undefined ? n : Object.keys(files)[0];
-  }
-  function setCurrent(n) { localStorage.setItem(CURRENT_KEY, n); }
 
-  var files = loadFiles();
-  saveFiles(files);                 // persist defaults on first visit
-
-  // ---------- Name helpers (mirrors the editor) ----------
+  // ---------- Name helpers (mirror the editor) ----------
   function normaliseName(input) {
     var name = (input || "").trim();
     if (!name) return "";
@@ -95,7 +102,6 @@
 
   function currentQuery() { return (searchEl.value || "").trim(); }
 
-  // Return the first matching line (for the content preview under a row).
   function firstMatchLine(code, q) {
     var lines = code.split("\n");
     var low = q.toLowerCase();
@@ -107,9 +113,6 @@
     return null;
   }
 
-  // Escape the text first, then wrap matches of the (escaped) query in <mark>.
-  // Escaping the query the same way keeps the match aligned with the escaped
-  // haystack (e.g. a query containing & or <).
   function highlight(text, q) {
     if (!q) return escapeHtml(text);
     var safeText = escapeHtml(text);
@@ -118,12 +121,17 @@
     return safeText.replace(re, function (m) { return "<mark>" + m + "</mark>"; });
   }
 
+  // Re-hydrate from the store, then paint. All callers that mutate the store
+  // call render() afterwards so the view reflects the authoritative state.
   function render() {
+    return hydrate().then(paint);
+  }
+
+  function paint() {
     var q = currentQuery();
     var names = sortedNames();
-    var current = getCurrent();
+    var current = activeName;
 
-    // Filter by query (name OR contents).
     var shown = names.filter(function (name) {
       if (!q) return true;
       var low = q.toLowerCase();
@@ -136,7 +144,6 @@
 
     listEl.innerHTML = "";
 
-    // Header row with a "select all (shown)" checkbox.
     var head = document.createElement("div");
     head.className = "row head";
     var allShownSelected = shown.length > 0 && shown.every(function (n) { return selected.has(n); });
@@ -150,7 +157,7 @@
     head.querySelector("#selAll").addEventListener("change", function (e) {
       if (e.target.checked) shown.forEach(function (n) { selected.add(n); });
       else shown.forEach(function (n) { selected.delete(n); });
-      render();
+      paint();
     });
 
     if (!shown.length) {
@@ -214,7 +221,6 @@
       row.appendChild(btns);
       listEl.appendChild(row);
 
-      // Content match preview, if the query matched inside the file.
       if (q) {
         var hit = firstMatchLine(code, q);
         if (hit) {
@@ -257,10 +263,14 @@
     var n = selected.size;
     selbarEl.textContent = total + " file" + (total === 1 ? "" : "s") +
       (n ? " · " + n + " selected" : "");
-    // Selection-dependent actions are disabled until something is ticked.
     var disabled = n === 0;
     exportBtn.disabled = disabled;
     deleteBtn.disabled = disabled;
+  }
+
+  // On a failed store operation, surface the error and leave state as-is.
+  function storeError(e, what) {
+    toast((what || "That didn't work") + ": " + (e && e.message || e), { error: true });
   }
 
   // ---------- Actions ----------
@@ -269,11 +279,10 @@
     if (input === null) return;
     var name = normaliseName(input);
     if (!name) return;
-    if (files[name] !== undefined) { toast("“" + name + "” already exists."); return; }
-    files[name] = "# " + name + "\n\n";
-    saveFiles(files);
-    render();
-    toast("Created " + name);
+    if (files[name] !== undefined) { toast("“" + name + "” already exists.", { error: true }); return; }
+    FileStore.write(toKey(name), "# " + name + "\n\n", { area: SCRIPTS_AREA })
+      .then(render).then(function () { toast("Created " + name); })
+      .catch(function (e) { storeError(e, "Couldn't create the file"); });
   }
 
   function renameFile(name) {
@@ -281,14 +290,17 @@
     if (input === null) return;
     var next = normaliseName(input);
     if (!next || next === name) return;
-    if (files[next] !== undefined && !confirm('"' + next + '" exists. Overwrite it?')) return;
-    files[next] = files[name];
-    delete files[name];
-    saveFiles(files);
-    if (getCurrent() === name) setCurrent(next);
-    if (selected.has(name)) { selected.delete(name); selected.add(next); }
-    render();
-    toast("Renamed to " + next);
+    var overwrite = files[next] !== undefined;
+    if (overwrite && !confirm('"' + next + '" exists. Overwrite it?')) return;
+    var op = overwrite
+      ? FileStore.write(toKey(next), files[name], { area: SCRIPTS_AREA })
+          .then(function () { return FileStore.remove(toKey(name)); })
+      : FileStore.rename(toKey(name), toKey(next));
+    op.then(function () {
+      if (selected.has(name)) { selected.delete(name); selected.add(next); }
+      return render();
+    }).then(function () { toast("Renamed to " + next); })
+      .catch(function (e) { storeError(e, "Couldn't rename the file"); });
   }
 
   function copyFile(name) {
@@ -297,22 +309,23 @@
     if (input === null) return;
     var next = normaliseName(input);
     if (!next) return;
-    if (files[next] !== undefined && !confirm('"' + next + '" exists. Overwrite it?')) return;
-    files[next] = files[name];
-    saveFiles(files);
-    render();
-    toast("Copied to " + next);
+    var overwrite = files[next] !== undefined;
+    if (overwrite && !confirm('"' + next + '" exists. Overwrite it?')) return;
+    // Overwrite path uses write; otherwise copy (which rejects on conflict).
+    var op = overwrite
+      ? FileStore.write(toKey(next), files[name], { area: SCRIPTS_AREA })
+      : FileStore.copy(toKey(name), toKey(next));
+    op.then(render).then(function () { toast("Copied to " + next); })
+      .catch(function (e) { storeError(e, "Couldn't copy the file"); });
   }
 
   function deleteFile(name) {
     if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
-    delete files[name];
-    selected.delete(name);
-    ensureNotEmpty();
-    saveFiles(files);
-    fixCurrent();
-    render();
-    toast("Deleted " + name);
+    FileStore.remove(toKey(name)).then(function () {
+      selected.delete(name);
+      return render();
+    }).then(function () { toast("Deleted " + name); })
+      .catch(function (e) { storeError(e, "Couldn't delete the file"); });
   }
 
   function deleteSelected() {
@@ -320,28 +333,24 @@
     var names = Array.from(selected);
     if (!confirm("Delete " + names.length + " selected file" +
         (names.length === 1 ? "" : "s") + "? This cannot be undone.")) return;
-    names.forEach(function (n) { delete files[n]; selected.delete(n); });
-    ensureNotEmpty();
-    saveFiles(files);
-    fixCurrent();
-    render();
-    toast("Deleted " + names.length + " file" + (names.length === 1 ? "" : "s"));
-  }
-
-  // Never leave zero files; recreate a default if the store becomes empty.
-  function ensureNotEmpty() {
-    if (Object.keys(files).length === 0) files[DEFAULT_NAME] = STARTER;
-  }
-  // If the editor's current file was deleted, point it at an existing one.
-  function fixCurrent() {
-    var cur = localStorage.getItem(CURRENT_KEY);
-    if (!cur || files[cur] === undefined) setCurrent(sortedNames()[0]);
+    // Remove sequentially so the store's re-seed logic stays consistent.
+    var chain = Promise.resolve();
+    names.forEach(function (n) {
+      chain = chain.then(function () { return FileStore.remove(toKey(n)); });
+    });
+    chain.then(function () {
+      names.forEach(function (n) { selected.delete(n); });
+      return render();
+    }).then(function () {
+      toast("Deleted " + names.length + " file" + (names.length === 1 ? "" : "s"));
+    }).catch(function (e) { storeError(e, "Couldn't delete the files"); });
   }
 
   function openInEditor(name) {
-    setCurrent(name);
-    window.open("editor.html", "_blank");
-    toast("Opening " + name + " in the editor…");
+    FileStore.setActive(toKey(name)).then(function () {
+      window.open("editor.html", "_blank");
+      toast("Opening " + name + " in the editor…");
+    }).catch(function (e) { storeError(e, "Couldn't open the file"); });
   }
 
   function downloadOne(name) {
@@ -361,7 +370,7 @@
         "python-files-" + stamp + ".zip");
       toast("Exported " + names.length + " file" + (names.length === 1 ? "" : "s"));
     } catch (e) {
-      toast("Export failed: " + (e && e.message || e));
+      toast("Export failed: " + (e && e.message || e), { error: true });
     }
   }
 
@@ -375,8 +384,8 @@
     reader.onload = function () {
       Promise.resolve()
         .then(function () { return MiniZip.unzip(new Uint8Array(reader.result)); })
-        .then(function (incoming) { mergeImported(incoming); })
-        .catch(function (e) { toast("Import failed: " + (e && e.message || e)); });
+        .then(function (incoming) { return mergeImported(incoming); })
+        .catch(function (e) { toast("Import failed: " + (e && e.message || e), { error: true }); });
     };
     reader.readAsArrayBuffer(file);
   });
@@ -384,14 +393,16 @@
   // Merge imported files; prompt once if any would overwrite existing ones.
   function mergeImported(incoming) {
     var incomingNames = Object.keys(incoming);
-    if (!incomingNames.length) { toast("The archive had no files."); return; }
+    if (!incomingNames.length) { toast("The archive had no files.", { error: true }); return; }
 
-    // Only accept .py files; rename others to .py for consistency? Keep as-is
-    // but ensure a .py extension so the editor can open them.
+    // Ensure a .py name and drop any folder path. unzip entries may be plain
+    // strings (older format) or { kind, text } (newer); take the text.
     var normalised = {};
     incomingNames.forEach(function (n) {
-      var base = n.split("/").pop();          // drop any folder path
-      normalised[normaliseName(base)] = incoming[n];
+      var base = n.split("/").pop();
+      var entry = incoming[n];
+      var text = (entry && typeof entry === "object") ? (entry.text || "") : String(entry);
+      normalised[normaliseName(base)] = text;
     });
 
     var clashes = Object.keys(normalised).filter(function (n) { return files[n] !== undefined; });
@@ -402,7 +413,6 @@
         "\n\nOK = overwrite them, Cancel = keep both (imported copies renamed).";
       var overwrite = confirm(msg);
       if (!overwrite) {
-        // Rename imported copies to avoid clobbering existing files.
         var renamed = {};
         Object.keys(normalised).forEach(function (n) {
           var target = files[n] !== undefined ? uniqueName(n) : n;
@@ -412,11 +422,23 @@
       }
     }
 
-    Object.keys(normalised).forEach(function (n) { files[n] = normalised[n]; });
-    saveFiles(files);
-    render();
-    toast("Imported " + Object.keys(normalised).length + " file" +
-      (Object.keys(normalised).length === 1 ? "" : "s"));
+    var names = Object.keys(normalised);
+    var chain = Promise.resolve();
+    names.forEach(function (n) {
+      chain = chain.then(function () {
+        return FileStore.write(toKey(n), normalised[n], { area: SCRIPTS_AREA });
+      });
+    });
+    return chain.then(render).then(function () {
+      toast("Imported " + names.length + " file" + (names.length === 1 ? "" : "s"));
+    });
+  }
+
+  // ---------- Fallback banner ----------
+  function warnIfNotPersistent() {
+    if (!FileStore.isPersistent()) {
+      toast("Files can't be saved in this session.", { error: true });
+    }
   }
 
   // ---------- Wire up ----------
@@ -425,18 +447,16 @@
   document.getElementById("exportBtn").addEventListener("click", exportSelected);
   document.getElementById("deleteBtn").addEventListener("click", deleteSelected);
 
-  searchEl.addEventListener("input", render);
+  searchEl.addEventListener("input", paint);
   document.getElementById("searchClear").addEventListener("click", function () {
-    searchEl.value = ""; render(); searchEl.focus();
+    searchEl.value = ""; paint(); searchEl.focus();
   });
 
-  // If another tab (e.g. the editor) changes the files, refresh the list.
-  window.addEventListener("storage", function (e) {
-    if (e.key === FILES_KEY || e.key === CURRENT_KEY) {
-      files = loadFiles();
-      render();
-    }
-  });
+  // Refresh when another tab (e.g. the editor) changes files.
+  FileStore.onChange(function () { render(); });
 
-  render();
+  // Boot: init the store, then do the first render.
+  FileStore.init()
+    .then(function () { warnIfNotPersistent(); return render(); })
+    .catch(function (e) { toast("Storage error: " + (e && e.message || e), { error: true }); });
 })();

@@ -515,6 +515,10 @@
   })();
 </script>
 
+<!-- IndexedDB-backed file store (shared with the file manager). Classic
+     script so window.FileStore is defined before the module below runs. -->
+<script src="assets/file-store.js"></script>
+
 <!-- CodeMirror 6 (locally bundled) + Pyodide.
      assets/codemirror.min.js is a single esbuild bundle containing one copy
      of @codemirror/state, so extensions never fail instanceof checks and it
@@ -595,29 +599,39 @@ for i in range(3, 0, -1):
 print(f"🚀 Have an amazing day, {name}! 💖")
 `;
 
-  // ---------- Local file store (localStorage) ----------
-  // files: { "main.py": "code", ... }   current: "main.py"
-  const FILES_KEY = "editor:files";
-  const CURRENT_KEY = "editor:current";
+  // ---------- File store (IndexedDB via window.FileStore) ----------
+  // The editor keeps an in-memory cache { "main.py": "code", ... } and an
+  // active name `current`, hydrated from FileStore and written through on each
+  // change. FileStore keys scripts as "scripts/<name>"; the editor shows bare
+  // names, so we translate at the boundary.
+  const SCRIPTS_AREA = "scripts";
+  const toKey = (name) => SCRIPTS_AREA + "/" + name;
+  const toName = (path) => path.indexOf("/") === -1 ? path : path.slice(path.indexOf("/") + 1);
 
-  function loadFiles() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(FILES_KEY));
-      if (raw && typeof raw === "object" && Object.keys(raw).length) return raw;
-    } catch (_) { /* fall through to defaults */ }
-    return { [DEFAULT_NAME]: STARTER };
-  }
-  function saveFiles(files) { localStorage.setItem(FILES_KEY, JSON.stringify(files)); }
-  function getCurrentName() {
-    const name = localStorage.getItem(CURRENT_KEY);
-    return name && files[name] !== undefined ? name : Object.keys(files)[0];
-  }
-  function setCurrentName(name) { current = name; localStorage.setItem(CURRENT_KEY, name); }
+  let files = {};            // name -> code (cache)
+  let current = DEFAULT_NAME;
 
-  let files = loadFiles();
-  let current = getCurrentName();
-  saveFiles(files);          // persist defaults on first visit
-  setCurrentName(current);
+  // Hydrate the cache + active name from FileStore. Called once at startup and
+  // again when another tab changes things (onChange).
+  async function hydrateFromStore() {
+    const metas = await FileStore.list(SCRIPTS_AREA);
+    const next = {};
+    for (const m of metas) {
+      const rec = await FileStore.read(m.path);
+      next[toName(m.path)] = typeof rec.content === "string" ? rec.content : "";
+    }
+    files = next;
+    const active = toName(await FileStore.getActive());
+    current = files[active] !== undefined ? active : Object.keys(files).sort()[0];
+  }
+
+  // Show a one-off non-blocking warning when storage is not persistent.
+  function warnIfNotPersistent() {
+    if (!FileStore.isPersistent()) {
+      setStatus("Files can't be saved in this session.");
+      setTimeout(hideStatus, 4000);
+    }
+  }
 
   // Normalise a user-entered name: trim, add .py if missing.
   function normaliseName(input) {
@@ -635,9 +649,14 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     return `${stem}${n}.py`;
   }
 
+  // ---------- Initialise the store before building the editor ----------
+  await FileStore.init();
+  await hydrateFromStore();
+  warnIfNotPersistent();
+
   // ---------- Editor ----------
   const view = new EditorView({
-    doc: files[current],
+    doc: files[current] !== undefined ? files[current] : "",
     extensions: [
       basicSetup,
       python(),
@@ -669,15 +688,23 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
   }
 
-  // Debounced save of the editor buffer into the current file.
+  // Debounced save of the editor buffer into the current file (1000ms).
   let saveTimer = null;
   function scheduleSave() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveNow, 300);
+    saveTimer = setTimeout(saveNow, 1000);
   }
-  function saveNow() {
-    files[current] = view.state.doc.toString();
-    saveFiles(files);
+  // Write the active buffer through to FileStore. On failure, keep the editor
+  // content and tell the learner; the next debounce tick will retry.
+  async function saveNow() {
+    const code = view.state.doc.toString();
+    files[current] = code;                     // keep the cache current
+    try {
+      await FileStore.write(toKey(current), code, { area: SCRIPTS_AREA });
+    } catch (_) {
+      setStatus("Couldn't save your file.");
+      setTimeout(hideStatus, 4000);
+    }
   }
 
   // ---------- File dropdown + actions ----------
@@ -693,72 +720,99 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   }
 
   // Switch to another file, saving the current buffer first.
-  function openFile(name) {
+  async function openFile(name) {
     if (files[name] === undefined) return;
-    saveNow();
-    setCurrentName(name);
+    await saveNow();
+    current = name;
+    await FileStore.setActive(toKey(name));
     setEditorText(files[name]);
     refreshFileSelect();
   }
 
-  function createFile(name, code) {
+  // Create a new file with `code`, make it active, and open it.
+  async function createFile(name, code) {
+    await saveNow();                 // keep the current buffer before switching
+    try {
+      await FileStore.write(toKey(name), code, { area: SCRIPTS_AREA });
+    } catch (_) {
+      setStatus("Couldn't save your file.");
+      setTimeout(hideStatus, 4000);
+      return;
+    }
     files[name] = code;
-    saveNow();            // make sure current buffer is kept before switching
-    saveFiles(files);
-    setCurrentName(name);
+    current = name;
+    await FileStore.setActive(toKey(name));
     setEditorText(code);
     refreshFileSelect();
   }
 
   fileSelect.addEventListener("change", () => openFile(fileSelect.value));
 
-  fileNewBtn.addEventListener("click", () => {
+  fileNewBtn.addEventListener("click", async () => {
     const input = prompt("New file name:", uniqueName("untitled.py"));
     if (input === null) return;
     const name = normaliseName(input);
     if (!name) return;
     if (files[name] !== undefined) {
       if (!confirm(`"${name}" already exists. Open it instead?`)) return;
-      openFile(name);
+      await openFile(name);
       return;
     }
-    createFile(name, "# " + name + "\n\n");
+    await createFile(name, "# " + name + "\n\n");
   });
 
-  fileCopyBtn.addEventListener("click", () => {
-    saveNow();
+  fileCopyBtn.addEventListener("click", async () => {
+    await saveNow();
     const suggested = uniqueName("copy-of-" + current);
     const input = prompt(`Copy "${current}" to:`, suggested);
     if (input === null) return;
     const name = normaliseName(input);
     if (!name) return;
     if (files[name] !== undefined && !confirm(`"${name}" exists. Overwrite it?`)) return;
-    createFile(name, files[current]);
+    await createFile(name, files[current]);
   });
 
-  fileRenameBtn.addEventListener("click", () => {
+  fileRenameBtn.addEventListener("click", async () => {
     const input = prompt(`Rename "${current}" to:`, current);
     if (input === null) return;
     const name = normaliseName(input);
     if (!name || name === current) return;
-    if (files[name] !== undefined && !confirm(`"${name}" exists. Overwrite it?`)) return;
-    saveNow();
+    const overwrite = files[name] !== undefined;
+    if (overwrite && !confirm(`"${name}" exists. Overwrite it?`)) return;
+    await saveNow();
+    try {
+      if (overwrite) {
+        // Replace the target, then drop the old file.
+        await FileStore.write(toKey(name), files[current], { area: SCRIPTS_AREA });
+        await FileStore.remove(toKey(current));
+      } else {
+        await FileStore.rename(toKey(current), toKey(name));
+      }
+    } catch (_) {
+      setStatus("Couldn't rename your file.");
+      setTimeout(hideStatus, 4000);
+      return;
+    }
     files[name] = files[current];
     delete files[current];
-    saveFiles(files);
-    setCurrentName(name);
+    current = name;
+    await FileStore.setActive(toKey(name));
     refreshFileSelect();
   });
 
-  fileDeleteBtn.addEventListener("click", () => {
+  fileDeleteBtn.addEventListener("click", async () => {
     if (!confirm(`Delete "${current}"? This cannot be undone.`)) return;
-    delete files[current];
-    // Never leave zero files: recreate the default if needed.
-    if (Object.keys(files).length === 0) files[DEFAULT_NAME] = STARTER;
-    saveFiles(files);
-    const next = Object.keys(files).sort((a, b) => a.localeCompare(b))[0];
-    setCurrentName(next);
-    setEditorText(files[next]);
+    try {
+      await FileStore.remove(toKey(current));
+    } catch (_) {
+      setStatus("Couldn't delete your file.");
+      setTimeout(hideStatus, 4000);
+      return;
+    }
+    // Re-hydrate so the cache reflects any re-seed of main.py, then open the
+    // store's (possibly updated) active file.
+    await hydrateFromStore();
+    setEditorText(files[current] !== undefined ? files[current] : "");
     refreshFileSelect();
   });
 
@@ -769,7 +823,7 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     opt.textContent = s.name;
     sampleSelect.appendChild(opt);
   });
-  sampleSelect.addEventListener("change", () => {
+  sampleSelect.addEventListener("change", async () => {
     const idx = sampleSelect.value;
     sampleSelect.value = "";                 // reset so the same item can be re-picked
     if (idx === "") return;
@@ -778,10 +832,10 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     const hasContent = view.state.doc.toString().trim() !== "";
     // Offer to load into a new file so the current work is not lost.
     if (hasContent && confirm(`Load "${sample.name}" into a NEW file?\n\nOK = new file, Cancel = replace current file.`)) {
-      createFile(uniqueName(normaliseName(sample.name.replace(/[^\w]+/g, "-")) || "sample.py"), sample.code);
+      await createFile(uniqueName(normaliseName(sample.name.replace(/[^\w]+/g, "-")) || "sample.py"), sample.code);
     } else {
       setEditorText(sample.code);
-      saveNow();
+      await saveNow();
     }
   });
 
@@ -789,18 +843,32 @@ print(f"🚀 Have an amazing day, {name}! 💖")
 
   // If a cheatsheet handed us a snippet (via "Open in editor"), load it into a
   // NEW file so the learner never loses their current work. The payload lives
-  // in localStorage and is consumed (cleared) immediately.
-  (function loadIncomingSnippet() {
-    try {
-      const raw = localStorage.getItem("learn-python:editor-incoming");
-      if (!raw) return;
-      localStorage.removeItem("learn-python:editor-incoming");
-      const payload = JSON.parse(raw);
-      if (!payload || typeof payload.code !== "string") return;
-      const base = normaliseName((payload.name || "from-cheatsheet")) || "from-cheatsheet.py";
-      createFile(uniqueName(base), payload.code);
-    } catch (_) { /* ignore a malformed or blocked handoff */ }
+  // in localStorage and is consumed (cleared) immediately. A missing or
+  // malformed payload is cleared and leaves existing files untouched.
+  await (async function loadIncomingSnippet() {
+    let raw;
+    try { raw = localStorage.getItem("learn-python:editor-incoming"); }
+    catch (_) { return; }
+    if (!raw) return;
+    try { localStorage.removeItem("learn-python:editor-incoming"); } catch (_) {}
+    let payload = null;
+    try { payload = JSON.parse(raw); } catch (_) { return; }  // malformed: cleared, nothing created
+    if (!payload || typeof payload.code !== "string" || !payload.code) return;
+    const base = normaliseName((payload.name || "from-cheatsheet")) || "from-cheatsheet.py";
+    await createFile(uniqueName(base), payload.code);
   })();
+
+  // Refresh the file dropdown when another tab changes files, without touching
+  // the active editor buffer (never clobber unsaved edits). We only reconcile
+  // the dropdown + cache for non-active files.
+  FileStore.onChange(async () => {
+    const activeName = current;
+    const activeBuffer = view.state.doc.toString();
+    await hydrateFromStore();
+    current = files[activeName] !== undefined ? activeName : current;
+    files[current] = activeBuffer;            // preserve unsaved edits in the buffer
+    refreshFileSelect();
+  });
 
   // Load Pyodide once.
   const { loadPyodide } = await import("https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.mjs");
