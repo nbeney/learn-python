@@ -1,13 +1,18 @@
-// minizip.js — tiny, dependency-free ZIP reader/writer (STORE method only,
-// i.e. no compression). Good enough for small text files and works fully
-// offline. Exposes window.MiniZip = { zip(files), unzip(bytes) }.
+// minizip.js — tiny, dependency-free ZIP reader/writer. Writes STORE (no
+// compression); reads STORE + DEFLATE. Handles both text and binary entries
+// and works fully offline. Exposes window.MiniZip.
 //
-//   zip(files):   files = { "name.py": "text", ... } -> Uint8Array (.zip)
-//   unzip(bytes): Uint8Array (.zip) -> { "name.py": "text", ... }
+//   zip(files):   files = { "name": value, ... } -> Promise<Uint8Array>
+//                 each value is a string (UTF-8 encoded), a Uint8Array, or a
+//                 Blob (stored as-is). Returns a Promise because Blob entries
+//                 are read asynchronously.
+//   unzip(bytes): Uint8Array (.zip) -> Promise<{ name: { kind, text?, bytes } }>
+//                 every entry carries raw `bytes`; `text` is a best-effort
+//                 UTF-8 decode. The CALLER decides text vs binary (the file
+//                 manager decides by area), so `kind` is a hint only.
 //
-// Only the common case is handled: STORE (method 0), UTF-8 names, no
-// encryption, no zip64. That covers archives this app produces, and the
-// typical small archives a learner would import.
+// Only the common case is handled: STORE/DEFLATE, UTF-8 names, no encryption,
+// no zip64. That covers archives this app produces and typical small imports.
 
 (function () {
   "use strict";
@@ -49,16 +54,36 @@
     return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
   }
 
-  // Build a .zip (Uint8Array) from { name: text }.
+  // Coerce an entry value (string | Uint8Array | Blob | ArrayBuffer) to a
+  // Uint8Array. Returns a Promise because Blobs are read asynchronously.
+  function toBytes(value) {
+    if (value instanceof Uint8Array) return Promise.resolve(value);
+    if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer) {
+      return Promise.resolve(new Uint8Array(value));
+    }
+    if (typeof Blob !== "undefined" && value instanceof Blob) {
+      return value.arrayBuffer().then(function (buf) { return new Uint8Array(buf); });
+    }
+    return Promise.resolve(enc.encode(String(value)));   // text
+  }
+
+  // Build a .zip from { name: string | Uint8Array | Blob }. Async (Blobs).
   function zip(files) {
+    var names = Object.keys(files);
+    // Read every entry's bytes first (handles async Blob entries), then build.
+    return Promise.all(names.map(function (n) { return toBytes(files[n]); }))
+      .then(function (datas) { return buildZip(names, datas); });
+  }
+
+  // Assemble the archive from parallel name/data arrays.
+  function buildZip(names, datas) {
     var out = [];
     var central = [];
     var offset = 0;
-    var names = Object.keys(files);
 
-    names.forEach(function (name) {
+    names.forEach(function (name, idx) {
       var nameBytes = enc.encode(name);
-      var data = enc.encode(String(files[name]));
+      var data = datas[idx];
       var crc = crc32(data);
       var size = data.length;
 
@@ -138,12 +163,22 @@
     });
   }
 
-  // Parse a .zip (Uint8Array) into { name: text }. Walks local file headers,
-  // decoding STORE (method 0) directly and DEFLATE (method 8) via the browser.
+  // Best-effort UTF-8 decode. Returns null if the bytes are not valid UTF-8
+  // (so callers can tell "looks like text" from "definitely binary").
+  function tryDecodeText(bytes) {
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+    catch (_) { return null; }
+  }
+
+  // Parse a .zip into { name: { kind, text?, bytes } }. Walks local file
+  // headers, decoding STORE (method 0) directly and DEFLATE (method 8) via the
+  // browser. Every entry carries raw `bytes`; `text` is the UTF-8 decode when
+  // the bytes are valid UTF-8, else omitted. `kind` ("text"|"binary") is a
+  // hint; the caller (file manager) makes the final decision by area.
   // Directory entries are skipped. Returns a Promise so DEFLATE can be async.
   function unzip(bytes) {
     var b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    var tasks = [];           // array of { name, promise<string> }
+    var tasks = [];           // array of { name, promise<Uint8Array> }
     var i = 0;
     while (i + 4 <= b.length) {
       var sig = readU32(b, i);
@@ -155,16 +190,14 @@
       var nameStart = i + 30;
       var name = dec.decode(b.subarray(nameStart, nameStart + nameLen));
       var dataStart = nameStart + nameLen + extraLen;
-      var data = b.subarray(dataStart, dataStart + compSize);
+      // Copy out of the shared buffer so each entry owns its bytes.
+      var data = b.slice(dataStart, dataStart + compSize);
 
       if (!/\/$/.test(name)) {   // skip folder entries
         if (method === 0) {
-          tasks.push({ name: name, promise: Promise.resolve(dec.decode(data)) });
+          tasks.push({ name: name, promise: Promise.resolve(data) });
         } else if (method === 8) {
-          tasks.push({
-            name: name,
-            promise: inflateRaw(data).then(function (out) { return dec.decode(out); }),
-          });
+          tasks.push({ name: name, promise: inflateRaw(data) });
         } else {
           return Promise.reject(new Error(
             '"' + name + '" uses an unsupported compression method ' + method + "."));
@@ -176,12 +209,20 @@
       return Promise.reject(new Error("No files found in the archive."));
     }
     return Promise.all(tasks.map(function (t) { return t.promise; }))
-      .then(function (texts) {
+      .then(function (datas) {
         var files = {};
-        tasks.forEach(function (t, idx) { files[t.name] = texts[idx]; });
+        tasks.forEach(function (t, idx) {
+          var raw = datas[idx];
+          var text = tryDecodeText(raw);
+          files[t.name] = text === null
+            ? { kind: "binary", bytes: raw }
+            : { kind: "text", text: text, bytes: raw };
+        });
         return files;
       });
   }
 
-  window.MiniZip = { zip: zip, unzip: unzip, inflateRaw: inflateRaw, crc32: crc32 };
+  window.MiniZip = {
+    zip: zip, unzip: unzip, inflateRaw: inflateRaw, crc32: crc32, toBytes: toBytes,
+  };
 })();

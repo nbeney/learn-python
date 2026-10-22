@@ -98,13 +98,22 @@
     color: var(--muted); font-size: 1rem; line-height: 1; padding: 0 .2rem;
   }
 
-  /* File list. */
-  .list {
+  /* Tab panel: the card the active tab connects to. */
+  .panel {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-top: none;                    /* the tab strip provides the top edge */
+    border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;
     overflow: hidden;
   }
+  /* Per-area toolbar inside the panel. */
+  .panel .actions {
+    margin: 0; padding: .8rem .9rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* File list (inside the panel; the panel supplies the card chrome). */
+  .list { background: transparent; }
   .row {
     display: flex; align-items: center; gap: .7rem;
     padding: .6rem .9rem;
@@ -148,6 +157,71 @@
     font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .8rem;
   }
   .matchline mark { background: #ffd866; color: #1f2328; }
+
+  /* Area tabs: a classic tab strip that sits on a baseline, with the active
+     tab connected to the content panel (the file list) below it. */
+  .tabs {
+    display: flex; flex-wrap: wrap; gap: .25rem;
+    margin: 0;                          /* sits directly on top of the list */
+    padding: 0 .25rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    position: relative; bottom: -1px;   /* overlap the strip's bottom border */
+    display: inline-flex; align-items: center; gap: .45rem;
+    background: transparent; color: var(--muted);
+    border: 1px solid transparent;
+    border-top-left-radius: 10px; border-top-right-radius: 10px;
+    font: inherit; font-size: .9rem; font-weight: 600;
+    padding: .55rem .95rem; cursor: pointer; line-height: 1;
+    transition: background .12s ease, color .12s ease;
+  }
+  .tab .tab-emoji { font-size: 1.05rem; line-height: 1; }
+  /* Per-tab count pill. */
+  .tab .tab-count {
+    min-width: 1.35rem; text-align: center;
+    font-size: .72rem; font-weight: 700; line-height: 1;
+    padding: .18rem .4rem; border-radius: 999px;
+    background: rgba(127,127,127,.16); color: var(--muted);
+  }
+  .tab:hover { color: var(--text); }
+  .tab:hover:not([aria-selected="true"]) {
+    background: rgba(127,127,127,.08);
+    border-top-color: var(--border);
+    border-left-color: var(--border);
+    border-right-color: var(--border);
+  }
+  /* Active tab: card-coloured, bordered on three sides, and its bottom edge
+     merges into the panel by hiding the strip border beneath it. */
+  .tab[aria-selected="true"] {
+    color: var(--text);
+    background: var(--card);
+    border-color: var(--border);
+    border-bottom-color: var(--card);   /* erase the baseline under this tab */
+  }
+  .tab[aria-selected="true"]::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+    height: 2px; background: var(--accent);
+    border-top-left-radius: 2px; border-top-right-radius: 2px;
+  }
+  .tab[aria-selected="true"] .tab-count { background: rgba(9,105,218,.16); color: var(--accent); }
+  :root[data-theme="dark"] .tab[aria-selected="true"] .tab-count { background: rgba(88,166,255,.22); color: var(--accent); }
+
+  /* Asset preview tile shown at the left of a row for binary areas. */
+  .preview {
+    flex: 0 0 auto; width: 3rem; height: 3rem; border-radius: 8px;
+    border: 1px solid var(--border); overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(127,127,127,.08);
+  }
+  .preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .preview .placeholder { font-size: 1.4rem; line-height: 1; }
+  .preview audio { display: none; }
+  .row .playbtn {
+    background: transparent; border: 1px solid var(--border); border-radius: 7px;
+    cursor: pointer; font-size: 1rem; line-height: 1; padding: .3rem .4rem; color: var(--text);
+  }
+  .row .playbtn:hover { border-color: var(--accent); }
 
   .selbar { color: var(--muted); font-size: .85rem; margin: .8rem 0 0; }
 
@@ -237,24 +311,50 @@
     <p>Manage the Python files saved in your browser.</p>
   </header>
 
-  <div class="actions">
-    <button class="btn primary" id="newBtn">➕ New</button>
-    <button class="btn" id="importBtn">📥 Import ZIP</button>
-    <button class="btn" id="exportBtn">📦 Export selected</button>
-    <button class="btn danger" id="deleteBtn">🗑️ Delete selected</button>
-    <span class="spacer"></span>
-    <div class="search">
-      <span aria-hidden="true">🔍</span>
-      <input id="searchInput" type="search" placeholder="Find in names & contents…" aria-label="Find files" />
-      <button class="clear" id="searchClear" title="Clear" aria-label="Clear search">✕</button>
-    </div>
+  <!-- Area tabs: scripts / images / sounds / music / data. -->
+  <div class="tabs" id="tabs" role="tablist" aria-label="File areas">
+    <button class="tab" role="tab" data-area="scripts">
+      <span class="tab-emoji" aria-hidden="true">🐍</span><span class="tab-label">Scripts</span><span class="tab-count" data-count></span>
+    </button>
+    <button class="tab" role="tab" data-area="images">
+      <span class="tab-emoji" aria-hidden="true">🖼️</span><span class="tab-label">Images</span><span class="tab-count" data-count></span>
+    </button>
+    <button class="tab" role="tab" data-area="sounds">
+      <span class="tab-emoji" aria-hidden="true">🔊</span><span class="tab-label">Sounds</span><span class="tab-count" data-count></span>
+    </button>
+    <button class="tab" role="tab" data-area="music">
+      <span class="tab-emoji" aria-hidden="true">🎵</span><span class="tab-label">Music</span><span class="tab-count" data-count></span>
+    </button>
+    <button class="tab" role="tab" data-area="data">
+      <span class="tab-emoji" aria-hidden="true">💾</span><span class="tab-label">Data</span><span class="tab-count" data-count></span>
+    </button>
   </div>
 
-  <div class="list" id="list"></div>
-  <p class="selbar" id="selbar"></p>
+  <!-- Tab panel: toolbar + file list for the selected area, joined to the
+       tab strip above. -->
+  <div class="panel">
+    <div class="actions">
+      <button class="btn primary" id="newBtn">➕ New</button>
+      <button class="btn" id="uploadBtn">⬆️ Upload</button>
+      <button class="btn" id="importBtn">📥 Import ZIP</button>
+      <button class="btn" id="exportBtn">📦 Export ZIP</button>
+      <button class="btn danger" id="deleteBtn">🗑️ Delete</button>
+      <span class="spacer"></span>
+      <div class="search">
+        <span aria-hidden="true">🔍</span>
+        <input id="searchInput" type="search" placeholder="Find in names & contents…" aria-label="Find files" />
+        <button class="clear" id="searchClear" title="Clear" aria-label="Clear search">✕</button>
+      </div>
+    </div>
+
+    <div class="list" id="list"></div>
+    <p class="selbar" id="selbar"></p>
+  </div>
 
   <!-- Hidden file input used for ZIP import. -->
   <input type="file" id="zipInput" accept=".zip,application/zip" style="display:none" />
+  <!-- Hidden file input used for uploading files into the current area. -->
+  <input type="file" id="uploadInput" multiple style="display:none" />
 
   <footer>© Nicolas Beney. Licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0 ↗</a>.</footer>
 </div>

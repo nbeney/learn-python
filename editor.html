@@ -2788,6 +2788,83 @@ os.environ["TERM"] = "xterm-256color"
     hideStatus();
   }
 
+  // Working directory for a run. It is Pyodide's default CWD and is on
+  // sys.path, so scripts written here are importable (e.g. `import helpers`)
+  // and relative asset paths like "images/player.png" resolve.
+  const WORKDIR = "/home/pyodide";
+  const ASSET_AREAS = ["images", "sounds", "music", "data"];
+
+  // Stage all stored files into Pyodide_FS so imports and asset paths work.
+  // Scripts go into WORKDIR as <name>; assets go into WORKDIR/<area>/<name>.
+  // The live (possibly unsaved) active buffer is written over its stored copy
+  // so edits run without an explicit save. A full re-stage each run is fine
+  // given the small project sizes.
+  async function stageProject() {
+    const FS = pyodide.FS;
+    // Ensure the working directory and asset subdirectories exist.
+    mkdirp(WORKDIR);
+    for (const area of ASSET_AREAS) mkdirp(WORKDIR + "/" + area);
+    // Make WORKDIR the CWD and ensure it is importable (on sys.path), so a
+    // stored `helpers.py` can be imported as `helpers`.
+    pyodide.runPython(
+      "import os, sys, importlib\n" +
+      "os.chdir(" + JSON.stringify(WORKDIR) + ")\n" +
+      "if " + JSON.stringify(WORKDIR) + " not in sys.path: sys.path.insert(0, " + JSON.stringify(WORKDIR) + ")\n" +
+      // Drop any user modules previously imported from WORKDIR so edits to a
+      // helper module take effect on the next run (fresh import).
+      "for _n, _m in list(sys.modules.items()):\n" +
+      "    _f = getattr(_m, '__file__', None)\n" +
+      "    if _f and _f.startswith(" + JSON.stringify(WORKDIR + "/") + "):\n" +
+      "        del sys.modules[_n]\n" +
+      "importlib.invalidate_caches()\n"
+    );
+
+    // Scripts -> WORKDIR/<name> (text).
+    const scriptMetas = await FileStore.list("scripts");
+    const seen = Object.create(null);
+    for (const m of scriptMetas) {
+      const name = m.name;
+      seen[name] = true;
+      let text;
+      if (name === current) {
+        text = view.state.doc.toString();     // live buffer wins for the active file
+      } else {
+        const rec = await FileStore.read(m.path);
+        text = typeof rec.content === "string" ? rec.content : "";
+      }
+      FS.writeFile(WORKDIR + "/" + name, text);
+    }
+    // If the active file is brand-new and not yet listed, stage it too.
+    if (current && !seen[current]) {
+      FS.writeFile(WORKDIR + "/" + current, view.state.doc.toString());
+    }
+
+    // Asset areas -> WORKDIR/<area>/<name> (binary or text).
+    for (const area of ASSET_AREAS) {
+      const metas = await FileStore.list(area);
+      for (const m of metas) {
+        const rec = await FileStore.read(m.path);
+        const target = WORKDIR + "/" + area + "/" + m.name;
+        if (rec.content instanceof Blob) {
+          const buf = new Uint8Array(await rec.content.arrayBuffer());
+          FS.writeFile(target, buf);
+        } else {
+          FS.writeFile(target, String(rec.content));
+        }
+      }
+    }
+  }
+
+  // mkdir -p for Pyodide's FS (ignores "already exists").
+  function mkdirp(path) {
+    const parts = path.split("/").filter(Boolean);
+    let cur = "";
+    for (const p of parts) {
+      cur += "/" + p;
+      try { pyodide.FS.mkdir(cur); } catch (_) { /* exists */ }
+    }
+  }
+
   async function runCode() {
     const source = view.state.doc.toString();
     enterRunningState();             // button becomes ⏹ Stop; clears stop flag
@@ -2830,6 +2907,15 @@ os.environ["TERM"] = "xterm-256color"
       }
     }
     await nextFrame();               // let the clear paint before we start
+    // Stage stored scripts + assets into Pyodide_FS so `import helpers` and
+    // asset paths like "images/player.png" resolve.
+    try {
+      await stageProject();
+    } catch (e) {
+      appendOutput("Couldn't prepare your files: " + String(e && e.message || e), "error");
+      exitRunningState();
+      return;
+    }
     const run = pyodide.globals.get("__run_user_code");
     try {
       // Run the student's code through the async runner, which inserts
