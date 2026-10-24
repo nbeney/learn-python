@@ -311,6 +311,28 @@
   .gui-check { display: inline-flex; align-items: center; gap: .4rem; color: var(--text); font-size: .92rem; }
   .gui-slider { display: inline-flex; align-items: center; gap: .5rem; }
 
+  /* Game surface from Pygame Zero (pgzrun.go()). Hidden until the game runs.
+     Fills the result pane like the turtle canvas. */
+  .game-box { display: none; margin-bottom: .6rem; min-height: 0; }
+  .game-box.show { display: flex; flex: 1 1 auto; min-height: 0; }
+  #gameCanvas {
+    display: block;
+    width: 100%; height: 100%;
+    border-radius: 8px;
+    background: #000; border: 1px solid var(--border);
+    outline: none;                 /* focusable (tabindex) without a focus ring */
+  }
+  /* While a game is running, the output box is a fixed, scrolling strip below
+     the game canvas — it must not grow with printed text (which would shrink
+     the game). This overrides the side-by-side rule that lets output fill the
+     column. */
+  .output.has-game {
+    flex: 0 0 auto;
+    height: 8rem;
+    max-height: 8rem;
+    overflow: auto;
+  }
+
   /* Turtle drawing surface. Hidden until a program uses the turtle module. */
   .turtle-wrap { display: none; margin-bottom: .6rem; min-height: 0; }
   .turtle-wrap.show { display: flex; }
@@ -458,6 +480,9 @@
       <!-- GUI box: a guizero window renders here. Hidden until app.display(). -->
       <div class="gui-box" id="guiBox"><div class="gui-root" id="guiRoot"></div></div>
 
+      <!-- Game box: a Pygame Zero game renders here. Hidden until pgzrun.go(). -->
+      <div class="game-box" id="gameBox"><canvas id="gameCanvas" tabindex="0"></canvas></div>
+
       <div class="output" id="output"><div class="turtle-wrap" id="turtleWrap"><div class="turtle-stack"><canvas id="turtleCanvas" width="400" height="400"></canvas><canvas id="turtleCursor" width="400" height="400"></canvas></div></div><span id="outText">The program output will show up here.</span></div>
     </div>
   </div>
@@ -559,6 +584,8 @@
   const chartImg = document.getElementById("chartImg");    // matplotlib output image
   const guiBox = document.getElementById("guiBox");        // guizero GUI window box
   const guiRoot = document.getElementById("guiRoot");      // guizero widget container
+  const gameBox = document.getElementById("gameBox");      // pgzero game box
+  const gameCanvas = document.getElementById("gameCanvas");// pgzero game canvas
   const runBtn = document.getElementById("run");
 
   const fileSelect = document.getElementById("fileSelect");
@@ -1480,6 +1507,329 @@ print(f"🚀 Have an amazing day, {name}! 💖")
 
   turtleReset();   // start hidden + blank
 
+  // ---------- Pygame Zero (pgzero) bridge ----------
+  // Defined BEFORE the pgzero Python modules are registered so their
+  // "from js import jsPgz*" succeeds. The Python side owns game state and the
+  // API shape; this bridge owns the canvas, the requestAnimationFrame loop,
+  // input, assets and audio. pgzero uses a top-left, y-down pixel coordinate
+  // system, which maps directly onto the canvas (no flip/translate).
+  const gctx = gameCanvas.getContext("2d");
+  let pgzSizeW = 400, pgzSizeH = 400;
+
+  // Size the canvas backing store to its displayed rectangle * DPR so drawing
+  // is crisp; drawing is then expressed in CSS pixels. Mirrors turtleResize().
+  function pgzResize() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = gameCanvas.getBoundingClientRect();
+    const cssW = Math.max(1, Math.round(rect.width));
+    const cssH = Math.max(1, Math.round(rect.height));
+    const devW = Math.round(cssW * dpr);
+    const devH = Math.round(cssH * dpr);
+    if (gameCanvas.width !== devW || gameCanvas.height !== devH) {
+      gameCanvas.width = devW;
+      gameCanvas.height = devH;
+    }
+    gctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // CSS px -> device px
+    pgzSizeW = cssW;
+    pgzSizeH = cssH;
+  }
+
+  // Python reads the current drawing size (CSS pixels) through this.
+  globalThis.jsPgzScreenSize = () => [pgzSizeW, pgzSizeH];
+
+  // Reveal + size the game box on first use.
+  globalThis.jsPgzShow = () => {
+    const wasHidden = !gameBox.classList.contains("show");
+    gameBox.classList.add("show");
+    // Keep the output box a fixed, scrolling strip under the game (it must
+    // not grow with printed text and steal the game's space).
+    outEl.classList.add("has-game");
+    if (wasHidden) {
+      pgzResize();
+      gctx.fillStyle = "#000000";
+      gctx.fillRect(0, 0, pgzSizeW, pgzSizeH);
+      try { gameCanvas.focus(); } catch (_) {}
+    }
+  };
+
+  // ----- The game loop (requestAnimationFrame) -----
+  // The Python pgzrun.go() hands us a single frame callback (a PyProxy of
+  // __pgz_frame(dt)) and a resolver (__pgz_loop_done) via jsPgzStartLoop.
+  let pgzRafId = 0;
+  let pgzLastTs = 0;
+  let pgzLooping = false;
+  let pgzFrameProxy = null;      // PyProxy: __pgz_frame(dt) -> runs clock+update+draw
+  let pgzResolveProxy = null;    // PyProxy: resolves go()'s Future
+  let pgzErrored = false;        // one-shot guard so we report at most one error
+
+  function pgzFrame(ts) {
+    if (!pgzLooping) return;
+    // Cooperative stop: observed at the top of every frame.
+    if (globalThis.jsStopRequested && globalThis.jsStopRequested()) {
+      pgzEndLoop();
+      return;
+    }
+    let dt = pgzLastTs ? (ts - pgzLastTs) / 1000 : 0;   // seconds; first frame 0
+    if (dt > 0.1) dt = 0.1;                             // clamp after tab pauses
+    pgzLastTs = ts;
+    try {
+      if (pgzFrameProxy) pgzFrameProxy(dt);             // clock.tick -> update -> draw
+    } catch (e) {
+      if (!pgzErrored) {
+        pgzErrored = true;
+        appendOutput(String(e && e.message || e), "error");
+      }
+      pgzEndLoop();
+      return;
+    }
+    pgzRafId = requestAnimationFrame(pgzFrame);
+  }
+
+  // Start the loop. Called by pgzrun.go() via Python.
+  globalThis.jsPgzStartLoop = (frameProxy, resolveProxy) => {
+    // Cancel any lingering loop first (idempotent restart).
+    pgzStopRaf();
+    pgzFrameProxy = frameProxy;
+    pgzResolveProxy = resolveProxy;
+    pgzErrored = false;
+    pgzLastTs = 0;
+    pgzLooping = true;
+    globalThis.jsPgzShow();
+    pgzRafId = requestAnimationFrame(pgzFrame);
+  };
+
+  // Cancel just the rAF (internal helper).
+  function pgzStopRaf() {
+    if (pgzRafId) { cancelAnimationFrame(pgzRafId); pgzRafId = 0; }
+    pgzLooping = false;
+  }
+
+  // End the loop from any path. Idempotent: resolve the Future once, stop the
+  // rAF, stop audio (later phases), and leave the final frame painted.
+  function pgzEndLoop() {
+    pgzStopRaf();
+    if (globalThis.jsPgzStopAllAudio) globalThis.jsPgzStopAllAudio();
+    // Resolve go()'s Future so the Python program can finish.
+    const resolve = pgzResolveProxy;
+    pgzResolveProxy = null;
+    const frame = pgzFrameProxy;
+    pgzFrameProxy = null;
+    if (resolve) {
+      try { resolve(); } catch (_) {}
+      try { resolve.destroy && resolve.destroy(); } catch (_) {}
+    }
+    if (frame) { try { frame.destroy && frame.destroy(); } catch (_) {} }
+  }
+
+  // Python calls this (pgzrun.go() finally, or _reset()) to force-stop.
+  globalThis.jsPgzStopLoop = () => { pgzEndLoop(); };
+
+  // Full reset: end any loop, clear + hide the box. Called from clearOutput().
+  globalThis.jsPgzReset = () => {
+    pgzEndLoop();
+    pgzResize();
+    gctx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+    gameBox.classList.remove("show");
+    outEl.classList.remove("has-game");
+  };
+
+  // ----- Drawing primitives (CSS-pixel coords, top-left y-down) -----
+  globalThis.jsPgzClear = () => {
+    gctx.save();
+    gctx.setTransform(1, 0, 0, 1, 0, 0);
+    gctx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+    gctx.fillStyle = "#000000";
+    gctx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+    gctx.restore();
+  };
+  globalThis.jsPgzFill = (color, gcolor) => {
+    gctx.save();
+    if (gcolor) {
+      const g = gctx.createLinearGradient(0, 0, 0, pgzSizeH);
+      g.addColorStop(0, color || "#000000");
+      g.addColorStop(1, gcolor);
+      gctx.fillStyle = g;
+    } else {
+      gctx.fillStyle = color || "#000000";
+    }
+    gctx.fillRect(0, 0, pgzSizeW, pgzSizeH);
+    gctx.restore();
+  };
+  globalThis.jsPgzDrawLine = (x1, y1, x2, y2, color, width) => {
+    gctx.strokeStyle = color || "#ffffff";
+    gctx.lineWidth = width || 1;
+    gctx.beginPath();
+    gctx.moveTo(x1, y1); gctx.lineTo(x2, y2);
+    gctx.stroke();
+  };
+  globalThis.jsPgzDrawCircle = (x, y, radius, color, width) => {
+    gctx.strokeStyle = color || "#ffffff";
+    gctx.lineWidth = width || 1;
+    gctx.beginPath();
+    gctx.arc(x, y, Math.max(0, radius), 0, Math.PI * 2);
+    gctx.stroke();
+  };
+  globalThis.jsPgzDrawFilledCircle = (x, y, radius, color) => {
+    gctx.fillStyle = color || "#ffffff";
+    gctx.beginPath();
+    gctx.arc(x, y, Math.max(0, radius), 0, Math.PI * 2);
+    gctx.fill();
+  };
+  globalThis.jsPgzDrawRect = (x, y, w, h, color, width) => {
+    gctx.strokeStyle = color || "#ffffff";
+    gctx.lineWidth = width || 1;
+    gctx.strokeRect(x, y, w, h);
+  };
+  globalThis.jsPgzDrawFilledRect = (x, y, w, h, color) => {
+    gctx.fillStyle = color || "#ffffff";
+    gctx.fillRect(x, y, w, h);
+  };
+
+  // ----- ptext (screen.draw.text / textbox) -----
+  // opts is a plain JS object built on the Python side. Fonts use the system
+  // default (fontname ignored in v1). Supports colour/background, positioning
+  // anchors, word-wrap (width/widthem/lineheight), align, outline (owidth/
+  // ocolor), shadow (shadow/scolor), vertical gradient (gcolor), alpha, anchor
+  // and rotation (angle, anticlockwise).
+  function pgzFont(opts) {
+    const size = opts.fontsize || 24;
+    return size + "px " + "system-ui, -apple-system, 'Segoe UI', sans-serif";
+  }
+  // Greedy word-wrap using measureText; returns an array of lines. Honours
+  // explicit "\n" and an optional pixel width.
+  function pgzWrap(text, width, opts) {
+    gctx.font = pgzFont(opts);
+    const out = [];
+    const paras = String(text).split("\n");
+    for (const para of paras) {
+      if (!width) { out.push(para); continue; }
+      const words = para.split(" ");
+      let line = "";
+      for (const w of words) {
+        const trial = line ? line + " " + w : w;
+        if (gctx.measureText(trial).width > width && line) {
+          out.push(line);
+          line = w;
+        } else {
+          line = trial;
+        }
+      }
+      out.push(line);
+    }
+    return out;
+  }
+  // Resolve the top-left origin of the text block from positioning options.
+  function pgzResolveOrigin(opts, blockW, blockH) {
+    // Default top-left at (0,0) or at an explicit (x,y)/pos via "pos".
+    let left = 0, top = 0;
+    const o = opts;
+    // A bare position array lands in opts._pos (Python puts (x,y) there).
+    if (o._pos) { left = o._pos[0]; top = o._pos[1]; }
+    // Horizontal references.
+    if (o.left != null) left = o.left;
+    else if (o.centerx != null) left = o.centerx - blockW / 2;
+    else if (o.right != null) left = o.right - blockW;
+    else if (o.topleft) { left = o.topleft[0]; top = o.topleft[1]; }
+    else if (o.midtop) { left = o.midtop[0] - blockW / 2; top = o.midtop[1]; }
+    else if (o.topright) { left = o.topright[0] - blockW; top = o.topright[1]; }
+    else if (o.midleft) { left = o.midleft[0]; top = o.midleft[1] - blockH / 2; }
+    else if (o.center) { left = o.center[0] - blockW / 2; top = o.center[1] - blockH / 2; }
+    else if (o.midright) { left = o.midright[0] - blockW; top = o.midright[1] - blockH / 2; }
+    else if (o.bottomleft) { left = o.bottomleft[0]; top = o.bottomleft[1] - blockH; }
+    else if (o.midbottom) { left = o.midbottom[0] - blockW / 2; top = o.midbottom[1] - blockH; }
+    else if (o.bottomright) { left = o.bottomright[0] - blockW; top = o.bottomright[1] - blockH; }
+    // Vertical references (when not already set by a pair above).
+    if (o.top != null) top = o.top;
+    else if (o.centery != null) top = o.centery - blockH / 2;
+    else if (o.bottom != null) top = o.bottom - blockH;
+    // Fractional anchor (0..1) relative to the given position.
+    if (o.anchor && o._pos) {
+      left = o._pos[0] - o.anchor[0] * blockW;
+      top = o._pos[1] - o.anchor[1] * blockH;
+    }
+    return [left, top];
+  }
+  function pgzPaintText(lines, left, top, opts) {
+    const size = opts.fontsize || 24;
+    const lineH = (opts.lineheight || 1.0) * size;
+    gctx.font = pgzFont(opts);
+    gctx.textBaseline = "top";
+    gctx.textAlign = "left";
+    const blockW = Math.max(...lines.map((l) => gctx.measureText(l).width), 0);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      let lx = left;
+      const lineW = gctx.measureText(line).width;
+      if (opts.align === "center") lx = left + (blockW - lineW) / 2;
+      else if (opts.align === "right") lx = left + (blockW - lineW);
+      const ly = top + i * lineH;
+      if (opts.shadow) {
+        gctx.fillStyle = opts.scolor || "#000000";
+        gctx.fillText(line, lx + opts.shadow[0], ly + opts.shadow[1]);
+      }
+      if (opts.owidth) {
+        gctx.lineWidth = opts.owidth * (size / 24) * 2;
+        gctx.strokeStyle = opts.ocolor || "#000000";
+        gctx.lineJoin = "round";
+        gctx.strokeText(line, lx, ly);
+      }
+      if (opts.gcolor) {
+        const g = gctx.createLinearGradient(0, ly, 0, ly + size);
+        g.addColorStop(0, opts.color || "#ffffff");
+        g.addColorStop(1, opts.gcolor);
+        gctx.fillStyle = g;
+      } else {
+        gctx.fillStyle = opts.color || "#ffffff";
+      }
+      gctx.fillText(line, lx, ly);
+    }
+  }
+  globalThis.jsPgzDrawText = (text, opts) => {
+    opts = opts || {};
+    const size = opts.fontsize || 24;
+    const lineH = (opts.lineheight || 1.0) * size;
+    let width = opts.width || null;
+    if (!width && opts.widthem) width = opts.widthem * size;
+    const lines = pgzWrap(text, width, opts);
+    gctx.font = pgzFont(opts);
+    const blockW = Math.max(...lines.map((l) => gctx.measureText(l).width), 0);
+    const blockH = lines.length * lineH;
+    const [left, top] = pgzResolveOrigin(opts, blockW, blockH);
+    gctx.save();
+    if (opts.alpha != null) gctx.globalAlpha = opts.alpha;
+    if (opts.background) {
+      gctx.fillStyle = opts.background;
+      gctx.fillRect(left, top, blockW, blockH);
+    }
+    if (opts.angle) {
+      // Rotate anticlockwise about the block's top-left anchor point.
+      gctx.translate(left, top);
+      gctx.rotate(-opts.angle * Math.PI / 180);
+      pgzPaintText(lines, 0, 0, opts);
+    } else {
+      pgzPaintText(lines, left, top, opts);
+    }
+    gctx.restore();
+  };
+  // textbox: shrink fontsize until the wrapped text fits the rect, then draw.
+  globalThis.jsPgzDrawTextbox = (text, rx, ry, rw, rh, opts) => {
+    opts = Object.assign({}, opts || {});
+    let size = Math.max(4, Math.floor(rh));
+    while (size > 4) {
+      opts.fontsize = size;
+      const lines = pgzWrap(text, rw, opts);
+      gctx.font = pgzFont(opts);
+      const blockW = Math.max(...lines.map((l) => gctx.measureText(l).width), 0);
+      const blockH = lines.length * (opts.lineheight || 1.0) * size;
+      if (blockW <= rw && blockH <= rh) break;
+      size -= 1;
+    }
+    opts.fontsize = size;
+    opts._pos = null;
+    opts.topleft = [rx, ry];
+    globalThis.jsPgzDrawText(text, opts);
+  };
+
   pyodide.runPython(`
 import builtins, sys, ast, asyncio, traceback
 from js import jsWrite, jsReadLine, jsTick, jsStopRequested, jsReadLineStopSentinel
@@ -1653,6 +2003,13 @@ class _AsyncRewriter(ast.NodeTransformer):
                 return True
             if isinstance(node.func, ast.Attribute) and node.func.attr == "runAndWait":
                 return True
+            # pgzrun.go() starts the game loop and blocks until it ends; it is
+            # an async coroutine here, so await it (students write it without
+            # await, exactly as in Thonny).
+            if (isinstance(node.func, ast.Attribute) and node.func.attr == "go"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "pgzrun"):
+                return True
             if _is_requests_call(node):
                 return True
         return False
@@ -1673,11 +2030,53 @@ class _AsyncRewriter(ast.NodeTransformer):
         self.generic_visit(node)
         return node
 
+def __toplevel_names(tree):
+    # Names bound at module top level: assignments, def/class, imports, for
+    # targets, with-as, walrus. Used to declare them \`global\` inside __main
+    # (see below) so the wrapper behaves like true module scope.
+    names = set()
+    def add_target(t):
+        if isinstance(t, ast.Name):
+            names.add(t.id)
+        elif isinstance(t, (ast.Tuple, ast.List)):
+            for e in t.elts:
+                add_target(e)
+        elif isinstance(t, ast.Starred):
+            add_target(t.value)
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(stmt.name)
+        elif isinstance(stmt, (ast.Assign,)):
+            for t in stmt.targets:
+                add_target(t)
+        elif isinstance(stmt, (ast.AnnAssign, ast.AugAssign)):
+            add_target(stmt.target)
+        elif isinstance(stmt, (ast.For, ast.AsyncFor)):
+            add_target(stmt.target)
+        elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+            for item in stmt.items:
+                if item.optional_vars is not None:
+                    add_target(item.optional_vars)
+        elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+            for a in stmt.names:
+                names.add((a.asname or a.name).split(".")[0])
+    return names
+
 def __make_async(source):
     tree = ast.parse(source)
     async_funcs = __collect_async_funcs(tree)
     rewriter = _AsyncRewriter(async_funcs)
     new_body = []
+    # Pygame Zero programs define top-level variables that hooks read (as
+    # globals) and write (via \`global x\`). Because we wrap the program in an
+    # async function, those top-level names would otherwise become closure
+    # cells, so a hook's read and a hook's \`global\` write would disagree. For
+    # pgzero programs we declare the top-level names \`global\` inside __main so
+    # the wrapper matches real module scope and hooks share one namespace.
+    if "pgzrun" in source or "pgzero" in source:
+        gnames = sorted(__toplevel_names(tree))
+        if gnames:
+            new_body.append(ast.Global(names=gnames))
     for stmt in tree.body:
         new_body.append(rewriter._tick_stmt())
         new_body.append(rewriter.visit(stmt))
@@ -1695,6 +2094,15 @@ def __make_async(source):
 
 async def __run_user_code(source):
     g = {"__name__": "__main__", "__tick": __tick}
+    # Pygame Zero injects its builtins (screen, clock, Rect, Actor, keyboard,
+    # ...) into the program's namespace so students use them without importing.
+    # Do the same here BEFORE running, so bare names like clock work even at
+    # top level (e.g. clock.schedule_interval before pgzrun.go()). Gated on the
+    # program actually using pgzero so other programs are unaffected.
+    if "pgzrun" in source or "pgzero" in source:
+        _pgz_bi = sys.modules.get("pgzero.builtins")
+        if _pgz_bi is not None and hasattr(_pgz_bi, "_install"):
+            _pgz_bi._install(g)
     try:
         module = __make_async(source)
         code = compile(module, "<program>", "exec")
@@ -2051,6 +2459,459 @@ _mod.canvas_width = canvas_width
 _mod.canvas_height = canvas_height
 
 sys.modules["turtle"] = _mod
+`);
+
+  // ---------- A Pygame Zero (pgzero) shim ----------
+  // Registered after the pgzero JS bridge above so "from js import jsPgz*"
+  // resolves. The Python side owns the API shape (screen, Rect/ZRect, clock,
+  // pgzrun.go) and converts values to JS-friendly primitives; the JS bridge
+  // paints and drives the requestAnimationFrame loop. Phase 1 covers drawing,
+  // ptext, Rect/ZRect, clock, and the loop lifecycle. Events, Actors, sounds
+  // and music arrive in later phases. The API matches real pgzero so the same
+  // code runs in Thonny after \`pip install pgzero\` and \`pgzrun game.py\`.
+  pyodide.runPython(`
+import sys, math, types, inspect, asyncio
+from js import (jsPgzScreenSize, jsPgzShow, jsPgzReset,
+                jsPgzStartLoop, jsPgzStopLoop,
+                jsPgzClear, jsPgzFill,
+                jsPgzDrawLine, jsPgzDrawCircle, jsPgzDrawFilledCircle,
+                jsPgzDrawRect, jsPgzDrawFilledRect,
+                jsPgzDrawText, jsPgzDrawTextbox)
+try:
+    from pyodide.ffi import to_js, create_proxy
+except Exception:  # pragma: no cover - non-Pyodide fallback
+    to_js = None
+    create_proxy = None
+
+# ----- Colour normalisation (same logic as tests/pgzero/pgzcolor.py) -----
+def _pgz_clampb(v):
+    return max(0, min(255, int(round(float(v)))))
+
+def _pgz_color(color):
+    if color is None:
+        return None
+    if isinstance(color, str):
+        s = color.strip()
+        if s.lower().startswith("0x") and len(s) == 8:
+            return "#" + s[2:].lower()
+        if s.startswith("#"):
+            return s.lower()
+        return s
+    if isinstance(color, (tuple, list)):
+        if len(color) == 3:
+            r, g, b = (_pgz_clampb(c) for c in color)
+            return "rgb(%d,%d,%d)" % (r, g, b)
+        if len(color) == 4:
+            r, g, b = (_pgz_clampb(c) for c in color[:3])
+            a = round(max(0.0, min(1.0, float(color[3]) / 255.0)), 4)
+            return "rgba(%d,%d,%d,%s)" % (r, g, b, a)
+    raise ValueError("unsupported colour value: %r" % (color,))
+
+# ----- Rect / ZRect (same geometry as tests/pgzero/pgzrect.py) -----
+def _pgz_rect_args(args):
+    if len(args) == 1:
+        a = args[0]
+        if hasattr(a, "x") and hasattr(a, "width"):
+            return a.x, a.y, a.width, a.height
+        seq = list(a)
+        if len(seq) == 4:
+            return seq[0], seq[1], seq[2], seq[3]
+        if len(seq) == 2:
+            (x, y), (w, h) = seq
+            return x, y, w, h
+        raise TypeError("Rect accepts (x,y,w,h), ((x,y),(w,h)) or a rect")
+    if len(args) == 2:
+        (x, y), (w, h) = args
+        return x, y, w, h
+    if len(args) == 4:
+        return args
+    raise TypeError("Rect accepts (x,y,w,h), ((x,y),(w,h)) or a rect")
+
+class _BaseRect:
+    @staticmethod
+    def _num(v):
+        return float(v)
+    def __init__(self, *args):
+        x, y, w, h = _pgz_rect_args(args)
+        self._x = self._num(x); self._y = self._num(y)
+        self._w = self._num(w); self._h = self._num(h)
+    def copy(self):
+        return type(self)(self._x, self._y, self._w, self._h)
+    @property
+    def x(self): return self._x
+    @x.setter
+    def x(self, v): self._x = self._num(v)
+    @property
+    def y(self): return self._y
+    @y.setter
+    def y(self, v): self._y = self._num(v)
+    @property
+    def width(self): return self._w
+    @width.setter
+    def width(self, v): self._w = self._num(v)
+    @property
+    def height(self): return self._h
+    @height.setter
+    def height(self, v): self._h = self._num(v)
+    @property
+    def left(self): return self._x
+    @left.setter
+    def left(self, v): self._x = self._num(v)
+    @property
+    def top(self): return self._y
+    @top.setter
+    def top(self, v): self._y = self._num(v)
+    @property
+    def right(self): return self._x + self._w
+    @right.setter
+    def right(self, v): self._x = self._num(v) - self._w
+    @property
+    def bottom(self): return self._y + self._h
+    @bottom.setter
+    def bottom(self, v): self._y = self._num(v) - self._h
+    @property
+    def centerx(self): return self._x + self._w / 2
+    @centerx.setter
+    def centerx(self, v): self._x = self._num(v) - self._w / 2
+    @property
+    def centery(self): return self._y + self._h / 2
+    @centery.setter
+    def centery(self, v): self._y = self._num(v) - self._h / 2
+    @property
+    def size(self): return (self._w, self._h)
+    @size.setter
+    def size(self, v): self._w = self._num(v[0]); self._h = self._num(v[1])
+    @property
+    def topleft(self): return (self.left, self.top)
+    @topleft.setter
+    def topleft(self, p): self.left, self.top = p
+    @property
+    def topright(self): return (self.right, self.top)
+    @topright.setter
+    def topright(self, p): self.right, self.top = p
+    @property
+    def bottomleft(self): return (self.left, self.bottom)
+    @bottomleft.setter
+    def bottomleft(self, p): self.left, self.bottom = p
+    @property
+    def bottomright(self): return (self.right, self.bottom)
+    @bottomright.setter
+    def bottomright(self, p): self.right, self.bottom = p
+    @property
+    def center(self): return (self.centerx, self.centery)
+    @center.setter
+    def center(self, p): self.centerx, self.centery = p
+    @property
+    def midtop(self): return (self.centerx, self.top)
+    @midtop.setter
+    def midtop(self, p): self.centerx, self.top = p
+    @property
+    def midbottom(self): return (self.centerx, self.bottom)
+    @midbottom.setter
+    def midbottom(self, p): self.centerx, self.bottom = p
+    @property
+    def midleft(self): return (self.left, self.centery)
+    @midleft.setter
+    def midleft(self, p): self.left, self.centery = p
+    @property
+    def midright(self): return (self.right, self.centery)
+    @midright.setter
+    def midright(self, p): self.right, self.centery = p
+    def colliderect(self, o):
+        ox, oy, ow, oh = o.x, o.y, o.width, o.height
+        if self._w <= 0 or self._h <= 0 or ow <= 0 or oh <= 0:
+            return False
+        return (self._x < ox + ow and ox < self._x + self._w and
+                self._y < oy + oh and oy < self._y + self._h)
+    def collidepoint(self, *p):
+        px, py = p[0] if len(p) == 1 else p
+        return (self._x <= px < self._x + self._w and
+                self._y <= py < self._y + self._h)
+    def contains(self, o):
+        ox, oy, ow, oh = o.x, o.y, o.width, o.height
+        return (self._x <= ox and self._y <= oy and
+                ox + ow <= self._x + self._w and oy + oh <= self._y + self._h)
+    def clip(self, o):
+        ox, oy, ow, oh = o.x, o.y, o.width, o.height
+        nx = max(self._x, ox); ny = max(self._y, oy)
+        nr = min(self._x + self._w, ox + ow); nb = min(self._y + self._h, oy + oh)
+        if nr <= nx or nb <= ny:
+            return type(self)(self._x, self._y, 0, 0)
+        return type(self)(nx, ny, nr - nx, nb - ny)
+    def union(self, o):
+        ox, oy, ow, oh = o.x, o.y, o.width, o.height
+        nx = min(self._x, ox); ny = min(self._y, oy)
+        nr = max(self._x + self._w, ox + ow); nb = max(self._y + self._h, oy + oh)
+        return type(self)(nx, ny, nr - nx, nb - ny)
+    def __repr__(self):
+        return "%s(%s, %s, %s, %s)" % (type(self).__name__, self._x, self._y, self._w, self._h)
+
+class Rect(_BaseRect):
+    @staticmethod
+    def _num(v): return int(v)
+
+class ZRect(_BaseRect):
+    @staticmethod
+    def _num(v): return float(v)
+
+# ----- screen -----
+class _Draw:
+    def line(self, start, end, color, width=1):
+        jsPgzDrawLine(start[0], start[1], end[0], end[1], _pgz_color(color), width)
+    def circle(self, pos, radius, color, width=1):
+        jsPgzDrawCircle(pos[0], pos[1], radius, _pgz_color(color), width)
+    def filled_circle(self, pos, radius, color):
+        jsPgzDrawFilledCircle(pos[0], pos[1], radius, _pgz_color(color))
+    def rect(self, rect, color, width=1):
+        jsPgzDrawRect(rect.x, rect.y, rect.width, rect.height, _pgz_color(color), width)
+    def filled_rect(self, rect, color):
+        jsPgzDrawFilledRect(rect.x, rect.y, rect.width, rect.height, _pgz_color(color))
+    def text(self, text, *args, **kwargs):
+        jsPgzDrawText(str(text), _pgz_text_opts(args, kwargs))
+    def textbox(self, text, rect, **kwargs):
+        opts = _pgz_text_opts((), kwargs)
+        jsPgzDrawTextbox(str(text), rect.x, rect.y, rect.width, rect.height, opts)
+
+# ptext option keys we support; anything else is rejected (necessary condition).
+_PTEXT_OPTS = {
+    "color", "background", "fontname", "fontsize", "antialias",
+    "top", "left", "bottom", "right", "topleft", "topright", "bottomleft",
+    "bottomright", "midtop", "midbottom", "midleft", "midright", "center",
+    "centerx", "centery", "width", "widthem", "lineheight", "align",
+    "owidth", "ocolor", "shadow", "scolor", "gcolor", "alpha", "anchor", "angle",
+}
+_PTEXT_COLOR_KEYS = ("color", "background", "ocolor", "scolor", "gcolor")
+
+def _pgz_text_opts(args, kwargs):
+    for k in kwargs:
+        if k not in _PTEXT_OPTS:
+            raise TypeError("unsupported text option: %r" % (k,))
+    d = dict(kwargs)
+    # A positional (x, y) / [x, y] becomes the base position.
+    if args:
+        pos = args[0]
+        d["_pos"] = [pos[0], pos[1]]
+    # Normalise colour-valued options to CSS strings.
+    for k in _PTEXT_COLOR_KEYS:
+        if k in d and d[k] is not None:
+            d[k] = _pgz_color(d[k])
+    # Pass tuples for paired anchors/shadow through as lists for JS.
+    for k in ("topleft", "topright", "bottomleft", "bottomright", "midtop",
+              "midbottom", "midleft", "midright", "center", "shadow", "anchor"):
+        if k in d and d[k] is not None:
+            d[k] = [d[k][0], d[k][1]]
+    return _to_js_obj(d)
+
+def _to_js_obj(d):
+    # Convert a Python dict to a plain JS object for the bridge.
+    if to_js is not None:
+        import js
+        return to_js(d, dict_converter=js.Object.fromEntries)
+    return d
+
+class _Screen:
+    def __init__(self):
+        self.draw = _Draw()
+    @property
+    def width(self):
+        return int(jsPgzScreenSize()[0])
+    @property
+    def height(self):
+        return int(jsPgzScreenSize()[1])
+    def clear(self):
+        jsPgzClear()
+    def fill(self, color, gcolor=None):
+        jsPgzFill(_pgz_color(color), _pgz_color(gcolor))
+    def bounds(self):
+        return Rect(0, 0, self.width, self.height)
+    # blit arrives with the images phase; defined later to raise helpfully.
+    def blit(self, image, pos):
+        raise NotImplementedError("images are not available yet")
+
+screen = _Screen()
+
+# ----- clock -----
+class _Clock:
+    # Schedules fire in GAME time advanced by tick(dt). pgzero uses weak refs;
+    # we keep strong refs for simplicity (the whole loop is torn down each run,
+    # so there is no long-lived leak).
+    def __init__(self):
+        self._events = []   # list of dicts: {cb, due, interval}
+    def schedule(self, callback, delay):
+        self._events.append({"cb": callback, "due": self._t + delay, "interval": None})
+    def schedule_unique(self, callback, delay):
+        self._events = [e for e in self._events if e["cb"] is not callback]
+        self.schedule(callback, delay)
+    def schedule_interval(self, callback, interval):
+        self._events.append({"cb": callback, "due": self._t + interval, "interval": interval})
+    def unschedule(self, callback):
+        self._events = [e for e in self._events if e["cb"] is not callback]
+    _t = 0.0
+    def tick(self, dt):
+        self._t += dt
+        # Fire all due events; reschedule intervals.
+        due = [e for e in self._events if e["due"] <= self._t]
+        for e in due:
+            if e["interval"] is None:
+                try:
+                    self._events.remove(e)
+                except ValueError:
+                    pass
+            else:
+                e["due"] += e["interval"]
+            _pgz_call(e["cb"], {})
+    def _reset(self):
+        self._events = []
+        self._t = 0.0
+
+clock = _Clock()
+
+# ----- Hook dispatch (signature introspection) -----
+# available: the full set of argument values the engine can supply for a hook.
+# We pass only the parameters the function names. Used for update() and clock
+# callbacks in Phase 1; event hooks reuse it in Phase 2.
+def _pgz_call(func, available):
+    if func is None:
+        return None
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return func()
+    kwargs = {n: available[n] for n in params if n in available}
+    return func(**kwargs)
+
+# ----- pgzrun + the per-frame driver -----
+# The student module globals, captured at go() time so hooks (draw/update) are
+# looked up live each frame.
+_game_globals = None
+_loop_done = None
+
+def _pgz_frame(dt):
+    # Called by the JS rAF loop each frame: advance clock, then update, draw.
+    g = _game_globals or {}
+    clock.tick(dt)
+    update = g.get("update")
+    if update is not None:
+        _pgz_call(update, {"dt": dt})
+    draw = g.get("draw")
+    if draw is not None:
+        _pgz_call(draw, {})
+
+def _pgz_resolve():
+    # Called by JS when the loop ends; lets go() return.
+    global _loop_done
+    if _loop_done is not None and not _loop_done.done():
+        _loop_done.set_result(None)
+
+async def go():
+    global _game_globals, _loop_done
+    # The editor runs the student's top-level code inside an async wrapper
+    # (__main), so the student's draw/update land in that frame's LOCALS, while
+    # bare names like \`screen\` resolve via the exec GLOBALS. We therefore:
+    #   * read hooks from the caller frame's locals snapshot (they are defined
+    #     before go() is called), and
+    #   * inject the builtins into the caller frame's globals so bare \`screen\`,
+    #     \`Rect\`, etc. resolve inside the nested draw/update functions.
+    caller = None
+    try:
+        caller = inspect.currentframe().f_back
+    except Exception:
+        caller = None
+    # The editor runs the student's top-level code inside an async wrapper
+    # (__main), so top-level names (x, hooks, ...) are that frame's LOCALS,
+    # while hook functions were compiled with the exec GLOBALS as their module
+    # scope. A hook that does "global x; x += 1" therefore binds x in the exec
+    # GLOBALS, not __main's locals. To make that work (and to let us look up
+    # draw/update/on_* live), we COPY the caller frame's locals up into its
+    # real globals dict and use that one dict as the live game namespace.
+    g = getattr(caller, "f_globals", None)
+    if g is None:
+        g = {}
+    try:
+        g.update(caller.f_locals)      # lift top-level names into true globals
+    except Exception:
+        pass
+    _game_globals = g
+    _loop_done = asyncio.get_event_loop().create_future()
+    frame_proxy = create_proxy(_pgz_frame) if create_proxy else _pgz_frame
+    resolve_proxy = create_proxy(_pgz_resolve) if create_proxy else _pgz_resolve
+    jsPgzStartLoop(frame_proxy, resolve_proxy)
+    try:
+        await _loop_done
+    finally:
+        jsPgzStopLoop()
+
+# Inject the pgzero builtins into a program namespace so bare \`screen\`,
+# \`clock\`, \`Rect\`, etc. work without importing them — exactly like real
+# Pygame Zero. Called once before the program runs (see __run_user_code), so
+# the names exist even at top level (before pgzrun.go()).
+def _install(g):
+    names = {
+        "screen": screen, "clock": clock, "Rect": Rect, "ZRect": ZRect,
+        "keyboard": keyboard, "keys": keys, "mouse": mouse, "keymods": keymods,
+    }
+    for k, v in names.items():
+        g.setdefault(k, v)
+    # WIDTH/HEIGHT reflect the live canvas size; any student value is ignored
+    # for sizing but we keep readable names in sync.
+    size = jsPgzScreenSize()
+    g.setdefault("WIDTH", int(size[0]))
+    g.setdefault("HEIGHT", int(size[1]))
+
+def _reset():
+    # Called before each run from runCode(). Clear game state and the box.
+    global _game_globals, _loop_done
+    clock._reset()
+    _game_globals = None
+    _loop_done = None
+    try:
+        keyboard._reset()
+    except Exception:
+        pass
+    jsPgzReset()
+
+# ----- Placeholder input builtins (filled in during Phase 2) -----
+class _Keyboard:
+    def __getattr__(self, name):
+        return False
+    def __getitem__(self, key):
+        return False
+    def _reset(self):
+        pass
+keyboard = _Keyboard()
+
+class _EnumNS:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+keys = _EnumNS()
+mouse = _EnumNS(LEFT=1, MIDDLE=2, RIGHT=3, WHEEL_UP=4, WHEEL_DOWN=5)
+keymods = _EnumNS()
+
+# ----- Module registration -----
+def _make_module(name, **attrs):
+    m = types.ModuleType(name)
+    for k, v in attrs.items():
+        setattr(m, k, v)
+    return m
+
+_builtins_mod = _make_module(
+    "pgzero.builtins",
+    screen=screen, clock=clock, Rect=Rect, ZRect=ZRect,
+    keyboard=keyboard, keys=keys, mouse=mouse, keymods=keymods,
+)
+_builtins_mod._reset = _reset
+_builtins_mod._install = _install
+
+_pkg = _make_module("pgzero")
+_pkg.builtins = _builtins_mod
+sys.modules["pgzero"] = _pkg
+sys.modules["pgzero.builtins"] = _builtins_mod
+sys.modules["pgzero.rect"] = _make_module("pgzero.rect", Rect=Rect, ZRect=ZRect)
+sys.modules["pgzero.clock"] = _make_module("pgzero.clock", clock=clock, Clock=_Clock)
+sys.modules["pgzero.screen"] = _make_module("pgzero.screen", Screen=_Screen)
+
+_pgzrun_mod = _make_module("pgzrun", go=go)
+sys.modules["pgzrun"] = _pgzrun_mod
 `);
 
   // ---------- A speech-synthesis `pyttsx3` shim ----------
@@ -2544,6 +3405,7 @@ sys.modules["requests.exceptions"] = _exc
     chartBox.classList.remove("show");       // hide any previous chart box
     chartImg.removeAttribute("src");
     if (globalThis.jsGuiReset) globalThis.jsGuiReset();   // hide + wipe the GUI window
+    if (globalThis.jsPgzReset) globalThis.jsPgzReset();   // end any game loop + hide the game box
   }
 
   // jsChart(dataUrl): called by matplotlib's show() with a PNG data URL. We
@@ -2935,6 +3797,8 @@ os.environ["TERM"] = "xterm-256color"
     pyodide.runPython("import sys\nif 'turtle' in sys.modules: sys.modules['turtle']._reset()");
     // Reset the guizero window so each run starts with an empty GUI.
     pyodide.runPython("import sys\nif 'guizero' in sys.modules: sys.modules['guizero']._reset()");
+    // Reset the pgzero game (end any loop, hide the game box) each run.
+    pyodide.runPython("import sys\nif 'pgzero.builtins' in sys.modules: sys.modules['pgzero.builtins']._reset()");
     // Lazily fetch matplotlib the first time a program needs it.
     if (usesMatplotlib(source)) {
       try {
@@ -2986,7 +3850,8 @@ os.environ["TERM"] = "xterm-256color"
       // output" in the text box. The turtle draws inside the output box, so
       // it does suppress the placeholder.
       if (!outTextEl.textContent && !turtleWrap.classList.contains("show")
-          && !guiBox.classList.contains("show")) {
+          && !guiBox.classList.contains("show")
+          && !gameBox.classList.contains("show")) {
         appendOutput("(no output)", null);
       }
     } catch (e) {

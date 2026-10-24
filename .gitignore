@@ -1,3 +1,1 @@
-# Vendor build dependencies (the built bundle in assets/ is committed)
-vendor/node_modules/
-vendor/package-lock.json
+__pycache__/
