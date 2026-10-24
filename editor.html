@@ -1560,7 +1560,29 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   let pgzLooping = false;
   let pgzFrameProxy = null;      // PyProxy: __pgz_frame(dt) -> runs clock+update+draw
   let pgzResolveProxy = null;    // PyProxy: resolves go()'s Future
+  let pgzDispatchProxy = null;   // PyProxy: _dispatch(hook_name, dataObj) for input hooks
   let pgzErrored = false;        // one-shot guard so we report at most one error
+
+  // Live input state (owned by JS; Python queries keyboard state via bridge).
+  const pgzPressedKeys = new Set();     // pgzero key names currently down
+  const pgzPressedButtons = new Set();  // pgzero mouse button names currently down
+  let pgzLastMouse = [0, 0];
+
+  // Dispatch an input hook into Python, guarded like a frame (one-shot error).
+  // Data is passed as a JSON string to avoid any JS-object -> Python kwargs
+  // conversion ambiguity across the bridge.
+  function pgzDispatch(hook, data) {
+    if (!pgzDispatchProxy || pgzErrored) return;
+    try {
+      pgzDispatchProxy(hook, JSON.stringify(data));
+    } catch (e) {
+      if (!pgzErrored) {
+        pgzErrored = true;
+        appendOutput(String(e && e.message || e), "error");
+      }
+      pgzEndLoop();
+    }
+  }
 
   function pgzFrame(ts) {
     if (!pgzLooping) return;
@@ -1586,15 +1608,18 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   }
 
   // Start the loop. Called by pgzrun.go() via Python.
-  globalThis.jsPgzStartLoop = (frameProxy, resolveProxy) => {
+  globalThis.jsPgzStartLoop = (frameProxy, resolveProxy, dispatchProxy) => {
     // Cancel any lingering loop first (idempotent restart).
     pgzStopRaf();
+    pgzDetachInput();              // ensure no stale listeners from a prior run
     pgzFrameProxy = frameProxy;
     pgzResolveProxy = resolveProxy;
+    pgzDispatchProxy = dispatchProxy || null;
     pgzErrored = false;
     pgzLastTs = 0;
     pgzLooping = true;
     globalThis.jsPgzShow();
+    pgzAttachInput();              // fresh input listeners for this run
     pgzRafId = requestAnimationFrame(pgzFrame);
   };
 
@@ -1608,17 +1633,21 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   // rAF, stop audio (later phases), and leave the final frame painted.
   function pgzEndLoop() {
     pgzStopRaf();
+    pgzDetachInput();             // always remove listeners on stop
     if (globalThis.jsPgzStopAllAudio) globalThis.jsPgzStopAllAudio();
     // Resolve go()'s Future so the Python program can finish.
     const resolve = pgzResolveProxy;
     pgzResolveProxy = null;
     const frame = pgzFrameProxy;
     pgzFrameProxy = null;
+    const dispatch = pgzDispatchProxy;
+    pgzDispatchProxy = null;
     if (resolve) {
       try { resolve(); } catch (_) {}
       try { resolve.destroy && resolve.destroy(); } catch (_) {}
     }
     if (frame) { try { frame.destroy && frame.destroy(); } catch (_) {} }
+    if (dispatch) { try { dispatch.destroy && dispatch.destroy(); } catch (_) {} }
   }
 
   // Python calls this (pgzrun.go() finally, or _reset()) to force-stop.
@@ -1632,6 +1661,126 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     gameBox.classList.remove("show");
     outEl.classList.remove("has-game");
   };
+
+  // ----- Input: keyboard + mouse (Phase 2) -----
+  // Map a DOM KeyboardEvent.code (layout-independent) to a pgzero key name
+  // (the lowercase attribute used by `keyboard`, matching the `keys` enum).
+  function pgzKeyName(e) {
+    const code = e.code;
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();   // KeyA -> a
+    if (/^Digit[0-9]$/.test(code)) return "k_" + code.slice(5);        // Digit0 -> k_0
+    if (/^Numpad[0-9]$/.test(code)) return "kp" + code.slice(6);       // Numpad0 -> kp0
+    const map = {
+      ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down",
+      Space: "space", Enter: "return", NumpadEnter: "kp_enter",
+      Escape: "escape", Backspace: "backspace", Tab: "tab", Delete: "delete",
+      Home: "home", End: "end", PageUp: "pageup", PageDown: "pagedown",
+      Insert: "insert",
+      ShiftLeft: "lshift", ShiftRight: "rshift",
+      ControlLeft: "lctrl", ControlRight: "rctrl",
+      AltLeft: "lalt", AltRight: "ralt",
+      MetaLeft: "lmeta", MetaRight: "rmeta",
+      Minus: "minus", Equal: "equals", Comma: "comma", Period: "period",
+      Slash: "slash", Backslash: "backslash", Semicolon: "semicolon",
+      Quote: "quote", BracketLeft: "leftbracket", Bracketright: "rightbracket",
+      BracketRight: "rightbracket", Backquote: "backquote",
+      NumpadAdd: "kp_plus", NumpadSubtract: "kp_minus",
+      NumpadMultiply: "kp_multiply", NumpadDivide: "kp_divide",
+      NumpadDecimal: "kp_period",
+    };
+    if (map[code]) return map[code];
+    if (/^F[0-9]{1,2}$/.test(code)) return code.toLowerCase();         // F1 -> f1
+    return code.toLowerCase();
+  }
+
+  // Build the pgzero `mod` bitmask from a DOM event's modifier flags. These
+  // bit values match pgzero/pygame KMOD_* constants closely enough for the
+  // keymods enum we expose to Python.
+  const PGZ_KMOD = { LSHIFT: 1, RSHIFT: 2, SHIFT: 3, LCTRL: 64, RCTRL: 128,
+                     CTRL: 192, LALT: 256, RALT: 512, ALT: 768,
+                     LMETA: 1024, RMETA: 2048, META: 3072 };
+  function pgzModMask(e) {
+    let m = 0;
+    if (e.shiftKey) m |= PGZ_KMOD.SHIFT;
+    if (e.ctrlKey) m |= PGZ_KMOD.CTRL;
+    if (e.altKey) m |= PGZ_KMOD.ALT;
+    if (e.metaKey) m |= PGZ_KMOD.META;
+    return m;
+  }
+
+  function pgzMouseButton(domButton) {
+    return domButton === 1 ? "MIDDLE" : domButton === 2 ? "RIGHT" : "LEFT";
+  }
+  // Mouse position in CSS pixels relative to the canvas (= game coords).
+  function pgzMousePos(e) {
+    const r = gameCanvas.getBoundingClientRect();
+    return [Math.round(e.clientX - r.left), Math.round(e.clientY - r.top)];
+  }
+
+  // DOM handlers (named so they can be removed on teardown).
+  function pgzOnKeyDown(e) {
+    const name = pgzKeyName(e);
+    // Keep game keys from scrolling the page / moving the caret.
+    if (["left", "right", "up", "down", "space"].includes(name)) e.preventDefault();
+    pgzPressedKeys.add(name);
+    pgzDispatch("on_key_down", { key: name, mod: pgzModMask(e),
+      unicode: (e.key && e.key.length === 1) ? e.key : "" });
+  }
+  function pgzOnKeyUp(e) {
+    const name = pgzKeyName(e);
+    pgzPressedKeys.delete(name);
+    pgzDispatch("on_key_up", { key: name, mod: pgzModMask(e) });
+  }
+  function pgzOnMouseDown(e) {
+    const btn = pgzMouseButton(e.button);
+    pgzPressedButtons.add(btn);
+    pgzLastMouse = pgzMousePos(e);
+    try { gameCanvas.focus(); } catch (_) {}
+    pgzDispatch("on_mouse_down", { pos: pgzLastMouse, button: btn });
+  }
+  function pgzOnMouseUp(e) {
+    const btn = pgzMouseButton(e.button);
+    pgzPressedButtons.delete(btn);
+    pgzLastMouse = pgzMousePos(e);
+    pgzDispatch("on_mouse_up", { pos: pgzLastMouse, button: btn });
+  }
+  function pgzOnMouseMove(e) {
+    const pos = pgzMousePos(e);
+    const rel = [pos[0] - pgzLastMouse[0], pos[1] - pgzLastMouse[1]];
+    pgzLastMouse = pos;
+    pgzDispatch("on_mouse_move", { pos: pos, rel: rel,
+      buttons: Array.from(pgzPressedButtons) });
+  }
+  function pgzOnWheel(e) {
+    e.preventDefault();
+    const btn = e.deltaY < 0 ? "WHEEL_UP" : "WHEEL_DOWN";
+    const pos = pgzMousePos(e);
+    // Scroll wheel appears as a button press (pgzero convention).
+    pgzDispatch("on_mouse_down", { pos: pos, button: btn });
+  }
+
+  function pgzAttachInput() {
+    // Listen for keys on the canvas (it is focusable via tabindex).
+    gameCanvas.addEventListener("keydown", pgzOnKeyDown);
+    gameCanvas.addEventListener("keyup", pgzOnKeyUp);
+    gameCanvas.addEventListener("mousedown", pgzOnMouseDown);
+    gameCanvas.addEventListener("mouseup", pgzOnMouseUp);
+    gameCanvas.addEventListener("mousemove", pgzOnMouseMove);
+    gameCanvas.addEventListener("wheel", pgzOnWheel, { passive: false });
+  }
+  function pgzDetachInput() {
+    gameCanvas.removeEventListener("keydown", pgzOnKeyDown);
+    gameCanvas.removeEventListener("keyup", pgzOnKeyUp);
+    gameCanvas.removeEventListener("mousedown", pgzOnMouseDown);
+    gameCanvas.removeEventListener("mouseup", pgzOnMouseUp);
+    gameCanvas.removeEventListener("mousemove", pgzOnMouseMove);
+    gameCanvas.removeEventListener("wheel", pgzOnWheel);
+    pgzPressedKeys.clear();
+    pgzPressedButtons.clear();
+  }
+
+  // Python's keyboard object queries live key state through this.
+  globalThis.jsPgzIsKeyDown = (name) => pgzPressedKeys.has(String(name));
 
   // ----- Drawing primitives (CSS-pixel coords, top-left y-down) -----
   globalThis.jsPgzClear = () => {
@@ -2476,7 +2625,8 @@ from js import (jsPgzScreenSize, jsPgzShow, jsPgzReset,
                 jsPgzClear, jsPgzFill,
                 jsPgzDrawLine, jsPgzDrawCircle, jsPgzDrawFilledCircle,
                 jsPgzDrawRect, jsPgzDrawFilledRect,
-                jsPgzDrawText, jsPgzDrawTextbox)
+                jsPgzDrawText, jsPgzDrawTextbox,
+                jsPgzIsKeyDown)
 try:
     from pyodide.ffi import to_js, create_proxy
 except Exception:  # pragma: no cover - non-Pyodide fallback
@@ -2797,6 +2947,38 @@ def _pgz_frame(dt):
     if draw is not None:
         _pgz_call(draw, {})
 
+# The arguments the engine can supply to each input hook. The dispatcher
+# passes only the ones the student's handler names (signature introspection),
+# exactly like real Pygame Zero.
+def _event_available(hook, data):
+    if hook == "on_mouse_down" or hook == "on_mouse_up":
+        return {"pos": tuple(data["pos"]), "button": _mouse_button(data["button"])}
+    if hook == "on_mouse_move":
+        return {"pos": tuple(data["pos"]), "rel": tuple(data["rel"]),
+                "buttons": set(_mouse_button(b) for b in data["buttons"])}
+    if hook == "on_key_down":
+        return {"key": _key_const(data["key"]), "mod": int(data["mod"]),
+                "unicode": data["unicode"]}
+    if hook == "on_key_up":
+        return {"key": _key_const(data["key"]), "mod": int(data["mod"])}
+    return {}
+
+def _pgz_dispatch(hook, data_json):
+    # Called from JS for input events. data_json is a JSON string (plain
+    # bridge, no object conversion). Look the hook up live in the program
+    # namespace and call it with just the parameters it names.
+    import json
+    g = _game_globals or {}
+    fn = g.get(hook)
+    if fn is None:
+        return
+    try:
+        data = json.loads(data_json) if data_json else {}
+        avail = _event_available(hook, data)
+    except Exception:
+        avail = {}
+    _pgz_call(fn, avail)
+
 def _pgz_resolve():
     # Called by JS when the loop ends; lets go() return.
     global _loop_done
@@ -2835,7 +3017,8 @@ async def go():
     _loop_done = asyncio.get_event_loop().create_future()
     frame_proxy = create_proxy(_pgz_frame) if create_proxy else _pgz_frame
     resolve_proxy = create_proxy(_pgz_resolve) if create_proxy else _pgz_resolve
-    jsPgzStartLoop(frame_proxy, resolve_proxy)
+    dispatch_proxy = create_proxy(_pgz_dispatch) if create_proxy else _pgz_dispatch
+    jsPgzStartLoop(frame_proxy, resolve_proxy, dispatch_proxy)
     try:
         await _loop_done
     finally:
@@ -2870,22 +3053,62 @@ def _reset():
         pass
     jsPgzReset()
 
-# ----- Placeholder input builtins (filled in during Phase 2) -----
+# ----- Input builtins: keyboard, keys, mouse, keymods -----
+# A key constant carries the pgzero attribute name (e.g. "a", "left", "space").
+# It compares/hashes by that name and stringifies to it, so keyboard[keys.A]
+# and keyboard.a both work and events can report keys.X.
+class _Key:
+    def __init__(self, name):
+        self.name = name
+    def __repr__(self):
+        return "keys." + self.name.upper()
+    def __eq__(self, o):
+        return isinstance(o, _Key) and o.name == self.name
+    def __hash__(self):
+        return hash(("_Key", self.name))
+
+class _Keys:
+    # Resolve keys.A -> _Key("a"), keys.LEFT -> _Key("left"), keys.K_0 ->
+    # _Key("k_0"), etc. (attribute access is upper-case; name stored lower).
+    def __getattr__(self, attr):
+        if attr.startswith("_"):
+            raise AttributeError(attr)
+        return _Key(attr.lower())
+keys = _Keys()
+
+# JS reports a key as its pgzero name string; map it to a _Key for hooks.
+def _key_const(name):
+    return _Key(str(name))
+
 class _Keyboard:
+    # Live keyboard state, queried from JS. keyboard.left / keyboard.a return
+    # booleans; keyboard[keys.A] does too.
     def __getattr__(self, name):
-        return False
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return bool(jsPgzIsKeyDown(name.lower()))
     def __getitem__(self, key):
-        return False
+        name = key.name if isinstance(key, _Key) else str(key)
+        return bool(jsPgzIsKeyDown(name.lower()))
     def _reset(self):
         pass
 keyboard = _Keyboard()
 
-class _EnumNS:
-    def __init__(self, **kw):
-        self.__dict__.update(kw)
-keys = _EnumNS()
-mouse = _EnumNS(LEFT=1, MIDDLE=2, RIGHT=3, WHEEL_UP=4, WHEEL_DOWN=5)
-keymods = _EnumNS()
+class _Mouse:
+    LEFT = "LEFT"; MIDDLE = "MIDDLE"; RIGHT = "RIGHT"
+    WHEEL_UP = "WHEEL_UP"; WHEEL_DOWN = "WHEEL_DOWN"
+mouse = _Mouse()
+
+def _mouse_button(name):
+    # JS passes the button name string; expose the matching mouse enum value.
+    return getattr(mouse, str(name), str(name))
+
+class _Keymods:
+    LSHIFT = 1; RSHIFT = 2; SHIFT = 3
+    LCTRL = 64; RCTRL = 128; CTRL = 192
+    LALT = 256; RALT = 512; ALT = 768
+    LMETA = 1024; RMETA = 2048; META = 3072
+keymods = _Keymods()
 
 # ----- Module registration -----
 def _make_module(name, **attrs):
