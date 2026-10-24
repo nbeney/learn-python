@@ -228,7 +228,7 @@ tests; the constraint is noted rather than assuming a framework exists.
       fires; re-run and confirm fresh listeners work.
     - _Requirements: 11.1, 11.2, 11.4, 11.5_
 
-- [ ] 13. Phase 2 checkpoint
+- [x] 13. Phase 2 checkpoint
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 14. Images loader and blit (Phase 3)

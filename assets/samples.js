@@ -329,4 +329,57 @@ for i in range(petals):
     tt.left(360 / petals)          # turn a little before the next
 `,
   },
+  {
+    name: "🎮 Pygame Zero: bouncing shapes",
+    code: `# A square and a circle that slide across the screen and bounce back.
+# update() moves things; draw() paints the picture; pgzrun.go() starts it.
+import pgzrun
+
+x = 20
+direction = 1
+
+def update(dt):
+    global x, direction
+    x += direction * 200 * dt          # move 200 pixels per second
+    if x > screen.width - 60 or x < 0:
+        direction = -direction         # bounce at the edges
+
+def draw():
+    screen.fill((20, 20, 40))
+    screen.draw.filled_rect(Rect(x, 100, 60, 60), "orange")
+    screen.draw.circle((x + 30, 220), 25, "cyan", 3)
+    screen.draw.line((0, 300), (screen.width, 300), "white")
+    screen.draw.text("Pygame Zero! 🎮", (20, 20), fontsize=40,
+                     color="yellow", owidth=1, ocolor="black")
+
+pgzrun.go()
+`,
+  },
+  {
+    name: "🎮 Pygame Zero: move with keys & mouse",
+    code: `# Drive the green square with the arrow keys, or click to jump to the mouse.
+# Click the game first so it can hear the keyboard.
+import pgzrun
+
+player = Rect(180, 130, 40, 40)
+
+def update(dt):
+    speed = 200 * dt
+    if keyboard.left:  player.x -= speed
+    if keyboard.right: player.x += speed
+    if keyboard.up:    player.y -= speed
+    if keyboard.down:  player.y += speed
+
+def draw():
+    screen.fill((15, 15, 30))
+    screen.draw.filled_rect(player, "lime")
+    screen.draw.text("Arrow keys to move. Click to jump.",
+                     (10, 10), fontsize=24, color="white")
+
+def on_mouse_down(pos):
+    player.center = pos                # jump to where you clicked
+
+pgzrun.go()
+`,
+  },
 ];
