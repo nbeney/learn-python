@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Blocks to Python</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f3f1fa;--panel:#fff;--bd:#d8d4ea;--tx:#25213a;--mut:#6d6888;--ws:#fbfaff;--fly:#ece9f7;--code:#fff;--gut:#f1eff9;--acc:#6c47ff;--ok:#1f9d57;--warn:#c77700;color-scheme:light;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17142a;--panel:#211d3b;--bd:#3a3562;--tx:#eceaff;--mut:#a29dc4;--ws:#1b1833;--fly:#2a2550;--code:#1b1833;--gut:#171430;--acc:#9a82ff;--ok:#4cd68a;--warn:#ffb340;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17142a;--panel:#211d3b;--bd:#3a3562;--tx:#eceaff;--mut:#a29dc4;--ws:#1b1833;--fly:#2a2550;--code:#1b1833;--gut:#171430;--acc:#9a82ff;--ok:#4cd68a;--warn:#ffb340;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--tx);font:600 15px/1.4 Nunito,system-ui,sans-serif;display:grid;grid-template-rows:auto 1fr minmax(120px,26vh);gap:10px;padding:10px;box-sizing:border-box}
+header{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:12px}
+.mid{display:flex;align-items:center;justify-content:center;gap:14px}
+#run{justify-self:end}
+h1{font-size:20px;font-weight:800;margin:0 0 0 4px}
+button,select{font:inherit;border-radius:10px;border:2px solid var(--bd);background:var(--panel);color:var(--tx);padding:6px 12px;cursor:pointer}
+#run{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:800;padding:7px 22px;font-size:16px}
+#run:disabled{opacity:.6;cursor:wait}
+#run:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+#status{font-size:13px;color:var(--mut);display:flex;align-items:center;gap:6px;max-width:46ch}
+#dot{width:10px;height:10px;border-radius:50%;background:var(--ok);flex:none}
+#status.syncing #dot{background:var(--acc)}#status.warn #dot{background:var(--warn)}#status.warn{color:var(--warn)}
+main{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0}
+.pane{background:var(--panel);border:2px solid var(--bd);border-radius:14px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.pane>h2{margin:0;padding:7px 14px;font-size:14px;font-weight:800;color:var(--mut);border-bottom:2px solid var(--bd)}
+.fill{position:relative;flex:1;min-height:0}
+#blockly{position:absolute;inset:0}
+.editor{display:flex;position:absolute;inset:0;background:var(--code)}
+#gut,#code{font:400 15px/1.6 "JetBrains Mono",ui-monospace,Menlo,monospace;padding:12px 0;margin:0;box-sizing:border-box}
+#gut{width:3.2em;text-align:right;padding-right:10px;background:var(--gut);color:var(--mut);overflow:hidden;white-space:pre;user-select:none}
+#code{flex:1;border:0;outline:0;resize:none;background:transparent;color:var(--tx);padding-left:12px;white-space:pre;overflow:auto;tab-size:4}
+#outwrap{background:#12101f;border:2px solid var(--bd);border-radius:14px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+#outwrap h2{margin:0;padding:6px 14px;font-size:13px;color:#a29dc4;border-bottom:1px solid #332e55;display:flex;justify-content:space-between;align-items:center}
+#outwrap h2 button{padding:1px 10px;font-size:12px;background:transparent;color:#a29dc4;border-color:#332e55}
+#out{flex:1;margin:0;padding:10px 14px;overflow:auto;font:400 15px/1.5 "JetBrains Mono",ui-monospace,monospace;color:#d8f5e2;white-space:pre-wrap}
+#out .ask{font:inherit;color:#fff;background:#25213f;border:1px solid #9a82ff;border-radius:6px;padding:0 6px;outline:0;min-width:12ch}#out .err{color:#ff8f8f}#out .hint{color:#8c87ad}
+.blocklySvg{background:var(--ws)!important}
+.blocklyToolboxDiv{background:var(--fly)!important}
+.blocklyToolboxCategoryLabel{color:var(--tx)!important;font-family:Nunito,sans-serif;font-weight:800}
+.blocklyFlyoutBackground{fill:var(--fly)!important;fill-opacity:.97!important}
+.modal{position:fixed;inset:0;background:#0008;display:grid;place-items:center;z-index:100}.modal form{background:var(--panel);border:2px solid var(--bd);border-radius:14px;padding:18px;display:grid;gap:14px;min-width:min(320px,88vw)}.modal input{display:block;width:100%;box-sizing:border-box;margin-top:6px;font:inherit;padding:6px 10px;border-radius:8px;border:2px solid var(--bd);background:var(--ws);color:var(--tx)}.modal div{display:flex;gap:8px;justify-content:flex-end}.modal .go{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:800}
+@media (max-width:760px){header{grid-template-columns:1fr auto}.mid{grid-column:1/-1;grid-row:2;flex-wrap:wrap}main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}body{grid-template-rows:auto 1fr minmax(110px,24vh)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Blocks to Python</h1>
+  <div class="mid">
+  <select id="examples" aria-label="Load an example">
+    <option value="">Try an example…</option>
+    <option value="hello">Say hello</option>
+    <option value="ask">Ask a question</option>
+    <option value="func">Make a function</option>
+    <option value="loop">Count with a loop</option>
+    <option value="decide">Make a decision</option>
+  </select>
+  <div id="status"><span id="dot"></span><span id="stxt">In sync</span></div>
+  </div>
+  <button id="run" title="Run (Ctrl+Enter)">▶ Run</button>
+</header>
+<main>
+  <section class="pane"><h2>Blocks</h2><div class="fill"><div id="blockly"></div></div></section>
+  <section class="pane"><h2>Python</h2><div class="fill"><div class="editor"><pre id="gut">1</pre><textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Python code"></textarea></div></div></section>
+</main>
+<section id="outwrap"><h2>Output <button id="clear">Clear</button></h2><pre id="out"><span class="hint">Press Run to see what your program prints.</span></pre></section>
+
+<script src="https://cdn.jsdelivr.net/npm/blockly@10.4.3/blockly_compressed.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/blockly@10.4.3/msg/en.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js"></script>
+<script>
+/* ---------- Block definitions ---------- */
+const iv=n=>({type:'input_value',name:n}), st=n=>({type:'input_statement',name:n});
+const dd=(n,o)=>({type:'field_dropdown',name:n,options:o.map(x=>[x,x])});
+const fi=(n,t)=>({type:'field_input',name:n,text:t});
+const SB={previousStatement:null,nextStatement:null,inputsInline:true};
+const FN=['str','int','float','len','abs','round'];
+Blockly.defineBlocksWithJsonArray([
+ {type:'py_print',message0:'print( %1 )',args0:[iv('V')],colour:160,...SB},
+ 
+ 
+ {type:'py_if',message0:'if %1',args0:[iv('C')],message1:'%1',args1:[st('DO')],colour:210,...SB},
+ {type:'py_ifelse',message0:'if %1',args0:[iv('C')],message1:'%1',args1:[st('DO')],message2:'else',message3:'%1',args3:[st('EL')],colour:210,...SB},
+ {type:'py_while',message0:'while %1',args0:[iv('C')],message1:'%1',args1:[st('DO')],colour:120,...SB},
+ {type:'py_for',message0:'for %1 in range( %2 )',args0:[fi('I','i'),iv('N')],message1:'%1',args1:[st('DO')],colour:120,...SB},
+ {type:'py_num',message0:'%1',args0:[{type:'field_number',name:'N',value:0}],output:null,colour:230},
+ {type:'py_text',message0:'“ %1 ”',args0:[fi('T','hello')],output:null,colour:20},
+ {type:'py_bool',message0:'%1',args0:[dd('V',['True','False'])],output:'Boolean',colour:210},
+ 
+ {type:'py_math',message0:'%1 %2 %3',args0:[iv('A'),dd('OP',['+','-','*','/','//','%']),iv('B')],inputsInline:true,output:null,colour:230},
+ {type:'py_cmp',message0:'%1 %2 %3',args0:[iv('A'),dd('OP',['==','!=','<','>','<=','>=']),iv('B')],inputsInline:true,output:'Boolean',colour:210},
+ {type:'py_logic',message0:'%1 %2 %3',args0:[iv('A'),dd('OP',['and','or']),iv('B')],inputsInline:true,output:'Boolean',colour:210},
+ {type:'py_not',message0:'not %1',args0:[iv('A')],output:'Boolean',colour:210},
+ {type:'py_fn',message0:'%1 ( %2 )',args0:[dd('F',FN),iv('A')],inputsInline:true,output:null,colour:20},
+ {type:'py_input',message0:'input( %1 )',args0:[iv('A')],inputsInline:true,output:null,colour:20},
+ {type:'py_def',message0:'def %1 ( %2 ):',args0:[fi('NAME','say_hello'),fi('P','')],message1:'%1',args1:[st('DO')],colour:290,...SB},
+ {type:'py_return',message0:'return %1',args0:[iv('V')],colour:290,...SB}
+]);
+/* ---------- Variables: pick from a list, or make a new one ---------- */
+let ws;
+const made=new Set(),pend=new Set(),pendF=new Set();
+function allVars(){const s=new Set([...made,...pend]);
+ if(ws)ws.getAllBlocks().forEach(b=>{if(b.type==='py_def')params(b).split(', ').forEach(x=>x&&s.add(x));if(/^py_(set|change|var|for)$/.test(b.type)){const f=b.getField(b.type==='py_for'?'I':'N');if(f)s.add(f.getValue())}});
+ return[...s].filter(Boolean)}
+function walk(o){if(Array.isArray(o))o.forEach(walk);else if(o&&typeof o==='object'){
+ if((o.t==='set'||o.t==='change'||o.t==='var')&&o.n)pend.add(o.n);if(o.t==='for')pend.add(o.v);if(o.t==='def'){pendF.add(o.name);o.params.forEach(x=>pend.add(x))}Object.values(o).forEach(walk)}}
+function askName(cb){const o=document.createElement('div');o.className='modal';
+ o.innerHTML='<form><label>Name your variable<input maxlength="30" autocomplete="off"></label><div><button type="button" class="x">Cancel</button><button class="go">Make variable</button></div></form>';
+ document.body.appendChild(o);const i=o.querySelector('input'),close=()=>o.remove();i.focus();
+ o.onkeydown=e=>{if(e.key==='Escape')close()};o.querySelector('.x').onclick=close;
+ o.querySelector('form').onsubmit=e=>{e.preventDefault();let n=i.value.trim().replace(/\W+/g,'_');if(/^\d/.test(n))n='_'+n;close();if(n)cb(n)}}
+function varField(){
+ const f=new Blockly.FieldDropdown(()=>{const v=allVars();return[...(v.length?v:['x']).map(x=>[x,x]),['＋ New variable…','__new__']]});
+ f.setValidator(v=>{if(v==='__new__'){askName(n=>{made.add(n);f.setValue(n)});return null}return v});return f}
+const stmtInit=(blk,sign)=>{blk.appendValueInput('V').appendField(varField(),'N').appendField(sign);blk.setInputsInline(true);blk.setPreviousStatement(true);blk.setNextStatement(true);blk.setColour(330)};
+Blockly.Blocks.py_set={init(){stmtInit(this,'=')}};
+Blockly.Blocks.py_change={init(){stmtInit(this,'+=')}};
+Blockly.Blocks.py_var={init(){this.appendDummyInput().appendField(varField(),'N');this.setOutput(true);this.setColour(330)}};
+/* ---------- Functions: def, return and calls ---------- */
+const cleanId=s=>{s=String(s||'').trim().replace(/\W+/g,'_');return /^\d/.test(s)?'_'+s:s};
+function params(b){return String(b.getFieldValue('P')||'').split(',').map(cleanId).filter(Boolean).join(', ')}
+function funcNames(){const s=new Set(pendF);if(ws)ws.getAllBlocks().forEach(b=>{if(b.type==='py_def')s.add(cleanId(b.getFieldValue('NAME')))});return[...s].filter(Boolean)}
+function defParams(name){if(!ws)return null;const d=ws.getAllBlocks().find(b=>b.type==='py_def'&&cleanId(b.getFieldValue('NAME'))===name);if(!d)return null;const p=params(d);return p?p.split(', ').length:0}
+function callCode(b){return cleanId(b.getFieldValue('F'))+'('+Array.from({length:b.n},(_,i)=>b.getInputTargetBlock('A'+i)?val(b,'A'+i)[0]:'None').join(', ')+')'}
+function callInit(blk,isStmt){
+ blk.n=0;
+ const f=new Blockly.FieldDropdown(()=>{const n=funcNames();return(n.length?n:['my_function']).map(x=>[x,x])});
+ blk.appendDummyInput('HEAD').appendField(f,'F').appendField('(');
+ blk.appendDummyInput('END').appendField(')');
+ blk.setInputsInline(true);blk.setColour(290);
+ if(isStmt){blk.setPreviousStatement(true);blk.setNextStatement(true)}else blk.setOutput(true);
+ f.setValidator(v=>{if(blk.ready){const d=defParams(v);if(d!==null&&d!==blk.n)blk.setN(d)}return v});
+ blk.ready=true}
+const callMixin={
+ setN(n){for(let i=0;this.getInput('A'+i);i++)this.removeInput('A'+i);
+  this.removeInput('END');this.n=n;
+  for(let i=0;i<n;i++)this.appendValueInput('A'+i);
+  this.appendDummyInput('END').appendField(')')},
+ saveExtraState(){return{n:this.n}},
+ loadExtraState(s){this.setN(s.n||0)}};
+Blockly.Blocks.py_call=Object.assign({init(){callInit(this,false)}},callMixin);
+Blockly.Blocks.py_callstmt=Object.assign({init(){callInit(this,true)}},callMixin);
+const sh=(type,f)=>({shadow:{type,fields:f}});
+const T=t=>sh('py_text',{T:t}), N=n=>sh('py_num',{N:n});
+const B=(type,inputs)=>({kind:'block',type,inputs});
+const toolbox={kind:'categoryToolbox',contents:[
+ {kind:'category',name:'Output',colour:'160',contents:[B('py_print',{V:T('Hello!')})]},
+ {kind:'category',name:'Variables',colour:'330',custom:'PYVARS'},
+ {kind:'category',name:'Logic',colour:'210',contents:[B('py_if'),B('py_ifelse'),B('py_cmp',{A:N(0),B:N(0)}),B('py_logic'),B('py_not'),B('py_bool')]},
+ {kind:'category',name:'Loops',colour:'120',contents:[B('py_for',{N:N(10)}),B('py_while')]},
+ {kind:'category',name:'Functions',colour:'290',custom:'PYFUNCS'},
+ {kind:'category',name:'Math',colour:'230',contents:[B('py_num'),B('py_math',{A:N(1),B:N(1)}),B('py_fn')]},
+ {kind:'category',name:'Text',colour:'20',contents:[B('py_text'),B('py_input',{A:T('What is your name? ')})]}
+]};
+
+/* ---------- Blocks -> Python ---------- */
+const wrap=(x,p)=>x[1]<p?`(${x[0]})`:x[0];
+const nm=b=>{let s=String(b.getFieldValue(b.getField('N')?'N':'I')||'x').replace(/\W/g,'_');return /^\d/.test(s)?'_'+s:s};
+function val(b,n){const c=b.getInputTargetBlock(n);return c?expr(c):['None',10]}
+function expr(b){const op=b.getFieldValue('OP');
+ switch(b.type){
+  case 'py_num':return[String(b.getFieldValue('N')),10];
+  case 'py_text':return[JSON.stringify(b.getFieldValue('T')),10];
+  case 'py_bool':return[b.getFieldValue('V'),10];
+  case 'py_var':return[nm(b),10];
+  case 'py_math':{const p=(op==='+'||op==='-')?5:6;return[wrap(val(b,'A'),p)+` ${op} `+wrap(val(b,'B'),p+1),p]}
+  case 'py_cmp':return[wrap(val(b,'A'),5)+` ${op} `+wrap(val(b,'B'),5),4];
+  case 'py_logic':{const p=op==='and'?2:1;return[wrap(val(b,'A'),p)+` ${op} `+wrap(val(b,'B'),p+1),p]}
+  case 'py_not':return['not '+wrap(val(b,'A'),3),3];
+  case 'py_call':return[callCode(b),10];
+  case 'py_input':return[`input(${b.getInputTargetBlock('A')?val(b,'A')[0]:''})`,10];
+  case 'py_fn':return[`${b.getFieldValue('F')}(${val(b,'A')[0]})`,10];
+ }return['None',10]}
+const body=(b,n,ind)=>{const c=b.getInputTargetBlock(n);return (c&&stmts(c,ind+1))||'    '.repeat(ind+1)+'pass\n'};
+function stmts(b,ind){let o='';for(;b;b=b.getNextBlock())o+=stmt(b,ind);return o}
+function ifGen(b,ind,kw){const pad='    '.repeat(ind);let s=`${pad}${kw} ${val(b,'C')[0]}:\n`+body(b,'DO',ind);
+ if(b.type==='py_ifelse'){const e=b.getInputTargetBlock('EL');
+  s+=(e&&!e.getNextBlock()&&(e.type==='py_if'||e.type==='py_ifelse'))?ifGen(e,ind,'elif'):pad+'else:\n'+body(b,'EL',ind)}
+ return s}
+function stmt(b,ind){const pad='    '.repeat(ind);
+ switch(b.type){
+  case 'py_print':return pad+`print(${b.getInputTargetBlock('V')?val(b,'V')[0]:''})\n`;
+  case 'py_set':return pad+`${nm(b)} = ${val(b,'V')[0]}\n`;
+  case 'py_change':return pad+`${nm(b)} += ${val(b,'V')[0]}\n`;
+  case 'py_if':case 'py_ifelse':return ifGen(b,ind,'if');
+  case 'py_callstmt':return pad+callCode(b)+'\n';
+  case 'py_return':return pad+'return'+(b.getInputTargetBlock('V')?' '+val(b,'V')[0]:'')+'\n';
+  case 'py_def':return pad+`def ${cleanId(b.getFieldValue('NAME'))||'my_function'}(${params(b)}):\n`+body(b,'DO',ind)+(ind?'':'\n');
+  case 'py_while':return pad+`while ${val(b,'C')[0]}:\n`+body(b,'DO',ind);
+  case 'py_for':return pad+`for ${nm(b)} in range(${val(b,'N')[0]}):\n`+body(b,'DO',ind);
+ }return''}
+const generate=()=>ws.getTopBlocks(true).filter(b=>!b.outputConnection).map(b=>stmts(b,0)).join('');
+
+/* ---------- Python -> AST (small teaching subset) ---------- */
+const unesc=s=>s.replace(/\\(.)/g,(a,c)=>c==='n'?'\n':c==='t'?'\t':c);
+function tokenize(src){const lines=[];
+ src.replace(/\r/g,'').split('\n').forEach((ln,i)=>{
+  const t=ln.replace(/\t/g,'    ');if(!t.trim()||t.trim()[0]==='#')return;
+  const indent=t.match(/^ */)[0].length,toks=[];let s=t.trim(),m;
+  while(s.length){
+   if(s[0]===' '){s=s.slice(1);continue}
+   if(s[0]==='#')break;
+   if(m=s.match(/^(\d+\.?\d*|\.\d+)/))toks.push({k:'num',v:parseFloat(m[0])});
+   else if(m=s.match(/^"((?:[^"\\]|\\.)*)"|^'((?:[^'\\]|\\.)*)'/))toks.push({k:'str',v:unesc(m[1]!==undefined?m[1]:m[2])});
+   else if(m=s.match(/^[A-Za-z_]\w*/))toks.push({k:'id',v:m[0]});
+   else if(m=s.match(/^(==|!=|<=|>=|\/\/|\+=|-=|[-+*\/%<>=():,])/))toks.push({k:'op',v:m[0]});
+   else throw{line:i+1,msg:`blocks don’t know the character “${s[0]}”`};
+   s=s.slice(m[0].length)}
+  lines.push({n:i+1,indent,toks})});
+ return lines}
+class P{
+ constructor(t,n){this.t=t;this.i=0;this.n=n}
+ peek(){return this.t[this.i]}
+ is(v){const x=this.peek();return !!x&&(x.k==='op'||x.k==='id')&&x.v===v}
+ eat(v){if(this.is(v)){this.i++;return true}return false}
+ need(v){if(!this.eat(v))this.fail(`I expected “${v}” here`)}
+ fail(m){throw{line:this.n,msg:m}}
+ end(){if(this.peek())this.fail('there’s extra stuff at the end of this line')}
+ args(){const a=[];if(!this.is(')')){do a.push(this.or());while(this.eat(','))}this.need(')');return a}
+ or(){let a=this.and();while(this.eat('or'))a={t:'logic',op:'or',a,b:this.and()};return a}
+ and(){let a=this.not();while(this.eat('and'))a={t:'logic',op:'and',a,b:this.not()};return a}
+ not(){return this.eat('not')?{t:'not',a:this.not()}:this.cmp()}
+ cmp(){const a=this.sum(),x=this.peek();
+  if(x&&x.k==='op'&&['==','!=','<','>','<=','>='].includes(x.v)){this.i++;return{t:'cmp',op:x.v,a,b:this.sum()}}return a}
+ bin(ops,next){let a=next.call(this);for(;;){const x=this.peek();
+  if(x&&x.k==='op'&&ops.includes(x.v)){this.i++;a={t:'bin',op:x.v,a,b:next.call(this)}}else return a}}
+ sum(){return this.bin(['+','-'],this.term)}
+ term(){return this.bin(['*','/','//','%'],this.unary)}
+ unary(){if(this.eat('-')){const e=this.unary();return e.t==='num'?{t:'num',v:-e.v}:{t:'bin',op:'-',a:{t:'num',v:0},b:e}}return this.atom()}
+ atom(){const x=this.peek();if(!x)this.fail('something is missing here');this.i++;
+  if(x.k==='num')return{t:'num',v:x.v};
+  if(x.k==='str')return{t:'str',v:x.v};
+  if(x.k==='op'&&x.v==='('){const e=this.or();this.need(')');return e}
+  if(x.k==='id'){
+   if(x.v==='True'||x.v==='False')return{t:'bool',v:x.v};
+   if(x.v==='None')return{t:'none'};
+   if(x.v==='input'&&this.is('(')){this.i++;let a={t:'none'};if(!this.is(')'))a=this.or();if(this.is(','))this.fail('input() takes one prompt');this.need(')');return{t:'input',a}}
+   if(this.is('(')&&DEFS.has(x.v)){this.i++;return{t:'call',f:x.v,args:this.args()}}
+   if(this.is('(')){if(!FN.includes(x.v))this.fail(`there’s no block for ${x.v}() yet`);
+    this.i++;const a=this.or();if(this.is(','))this.fail(`${x.v}() blocks take one value`);this.need(')');return{t:'fn',f:x.v,a}}
+   return{t:'var',n:x.v}}
+  this.fail(`I didn’t expect “${x.v}” here`)}
+}
+function sub(lines,i,indent,n){
+ if(i<lines.length&&lines[i].indent>indent)return parseBlock(lines,i,lines[i].indent);
+ throw{line:n,msg:'this line needs an indented block underneath it'}}
+function ifS(lines,i,indent,p,n){
+ const c=p.or();p.need(':');p.end();
+ let [th,j]=sub(lines,i,indent,n),el=null;const L=lines[j];
+ if(L&&L.indent===indent&&L.toks[0].k==='id'){const kw=L.toks[0].v,q=new P(L.toks,L.n);q.i=1;
+  if(kw==='elif'){const [nd,k]=ifS(lines,j+1,indent,q,L.n);el=[nd];j=k}
+  else if(kw==='else'){q.need(':');q.end();[el,j]=sub(lines,j+1,indent,L.n)}}
+ return[{t:'if',c,th,el},j]}
+function parseBlock(lines,i,indent){const out=[];
+ while(i<lines.length&&lines[i].indent===indent){
+  const L=lines[i++],p=new P(L.toks,L.n),f=p.peek();let kw=f.k==='id'?f.v:'';
+  if(kw==='print'&&L.toks[1]&&L.toks[1].v==='('){p.i=2;let e={t:'none'};
+   if(!p.is(')')){e=p.or();if(p.is(','))p.fail('a print block shows one thing — join pieces with + and str()')}
+   p.need(')');p.end();out.push({t:'print',e})}
+  else if(kw==='if'){p.i=1;const[nd,j]=ifS(lines,i,indent,p,L.n);out.push(nd);i=j}
+  else if(kw==='while'){p.i=1;const c=p.or();p.need(':');p.end();const[body,j]=sub(lines,i,indent,L.n);out.push({t:'while',c,body});i=j}
+  else if(kw==='for'){p.i=1;const v=p.peek();if(!v||v.k!=='id')p.fail('I expected a variable name after “for”');p.i++;
+   p.need('in');p.need('range');p.need('(');const n=p.or();if(p.is(','))p.fail('blocks only know range(n) for now');p.need(')');p.need(':');p.end();
+   const[body,j]=sub(lines,i,indent,L.n);out.push({t:'for',v:v.v,n,body});i=j}
+  else if(kw==='def'){p.i=1;const nt=p.peek();if(!nt||nt.k!=='id')p.fail('I expected a function name after “def”');p.i++;p.need('(');const ps=[];
+   if(!p.is(')')){do{const q=p.peek();if(!q||q.k!=='id')p.fail('I expected a parameter name');p.i++;ps.push(q.v)}while(p.eat(','))}
+   p.need(')');p.need(':');p.end();const[body,j]=sub(lines,i,indent,L.n);out.push({t:'def',name:nt.v,params:ps,body});i=j}
+  else if(kw==='return'){p.i=1;let e={t:'none'};if(p.peek())e=p.or();p.end();out.push({t:'return',e})}
+  else if(kw&&DEFS.has(kw)&&L.toks[1]&&L.toks[1].v==='('){p.i=2;const args=p.args();p.end();out.push({t:'callstmt',f:kw,args})}
+  else if(kw==='pass'){p.i=1;p.end()}
+  else if(kw&&L.toks[1]&&(L.toks[1].v==='='||L.toks[1].v==='+=')){const op=L.toks[1].v;p.i=2;const e=p.or();p.end();out.push({t:op==='='?'set':'change',n:kw,e})}
+  else p.fail(kw&&L.toks[1]&&L.toks[1].v==='('?`there’s no block for ${kw}() yet`:'blocks can’t show this line yet');
+ }
+ if(i<lines.length&&lines[i].indent>indent)throw{line:lines[i].n,msg:'unexpected indent'};
+ return[out,i]}
+const DEFS=new Set();
+function parse(src){const lines=tokenize(src);if(!lines.length)return[];
+ DEFS.clear();lines.forEach(l=>{if(l.toks[0].v==='def'&&l.toks[1])DEFS.add(l.toks[1].v)});
+ if(lines[0].indent)throw{line:lines[0].n,msg:'unexpected indent'};
+ const[out,i]=parseBlock(lines,0,0);
+ if(i<lines.length)throw{line:lines[i].n,msg:'unexpected indent'};return out}
+
+/* ---------- AST -> blocks ---------- */
+const mk=t=>{const b=ws.newBlock(t);b.initSvg();b.render();return b};
+const put=(b,n,node)=>{if(node&&node.t!=='none')b.getInput(n).connection.connect(val2(node).outputConnection)};
+const putS=(b,n,list)=>{const f=chain(list);if(f)b.getInput(n).connection.connect(f.previousConnection)};
+function val2(n){let b;switch(n.t){
+ case 'num':b=mk('py_num');b.setFieldValue(n.v,'N');break;
+ case 'str':b=mk('py_text');b.setFieldValue(n.v,'T');break;
+ case 'bool':b=mk('py_bool');b.setFieldValue(n.v,'V');break;
+ case 'var':b=mk('py_var');b.setFieldValue(n.n,'N');break;
+ case 'bin':b=mk('py_math');b.setFieldValue(n.op,'OP');put(b,'A',n.a);put(b,'B',n.b);break;
+ case 'cmp':b=mk('py_cmp');b.setFieldValue(n.op,'OP');put(b,'A',n.a);put(b,'B',n.b);break;
+ case 'logic':b=mk('py_logic');b.setFieldValue(n.op,'OP');put(b,'A',n.a);put(b,'B',n.b);break;
+ case 'not':b=mk('py_not');put(b,'A',n.a);break;
+ case 'call':b=mk('py_call');b.setFieldValue(n.f,'F');b.setN(n.args.length);n.args.forEach((a,i)=>put(b,'A'+i,a));break;
+ case 'input':b=mk('py_input');put(b,'A',n.a);break;
+ case 'fn':b=mk('py_fn');b.setFieldValue(n.f,'F');put(b,'A',n.a);break}
+ return b}
+function stmt2(s){let b;switch(s.t){
+ case 'print':b=mk('py_print');put(b,'V',s.e);break;
+ case 'set':case 'change':b=mk(s.t==='set'?'py_set':'py_change');b.setFieldValue(s.n,'N');put(b,'V',s.e);break;
+ case 'if':b=mk(s.el?'py_ifelse':'py_if');put(b,'C',s.c);putS(b,'DO',s.th);if(s.el)putS(b,'EL',s.el);break;
+ case 'def':b=mk('py_def');b.setFieldValue(s.name,'NAME');b.setFieldValue(s.params.join(', '),'P');putS(b,'DO',s.body);break;
+ case 'return':b=mk('py_return');put(b,'V',s.e);break;
+ case 'callstmt':b=mk('py_callstmt');b.setFieldValue(s.f,'F');b.setN(s.args.length);s.args.forEach((a,i)=>put(b,'A'+i,a));break;
+ case 'while':b=mk('py_while');put(b,'C',s.c);putS(b,'DO',s.body);break;
+ case 'for':b=mk('py_for');b.setFieldValue(s.v,'I');put(b,'N',s.n);putS(b,'DO',s.body);break}
+ return b}
+function chain(list){let first=null,prev=null;
+ for(const s of list){const b=stmt2(s);if(prev)prev.nextConnection.connect(b.previousConnection);else first=b;prev=b}
+ return first}
+function rebuild(ast){Blockly.Events.disable();
+ pend.clear();pendF.clear();walk(ast);
+ try{ws.clear();const f=chain(ast);if(f)f.moveBy(30,30)}finally{Blockly.Events.enable();pend.clear();pendF.clear()}}
+
+/* ---------- Workspace + two-way sync ---------- */
+const $=id=>document.getElementById(id);
+const ta=$('code'),gut=$('gut'),out=$('out');
+ws=Blockly.inject('blockly',{toolbox,renderer:'zelos',trashcan:true,
+ zoom:{controls:true,wheel:false,startScale:.95},grid:{spacing:24,length:3,colour:'#8884',snap:true},move:{scrollbars:true,drag:true,wheel:true}});
+ws.registerToolboxCategoryCallback('PYFUNCS',()=>{
+ const L=[{kind:'block',type:'py_def',fields:{NAME:'say_hello',P:''}}];
+ funcNames().forEach(f=>{const k=defParams(f)||0,x={F:f},ex={n:k};
+  L.push({kind:'block',type:'py_callstmt',fields:x,extraState:ex},{kind:'block',type:'py_call',fields:x,extraState:ex})});
+ L.push({kind:'block',type:'py_return',inputs:{V:N(0)}});return L});
+ws.registerButtonCallback('NEWVAR',()=>askName(n=>{made.add(n);ws.refreshToolboxSelection()}));
+ws.registerToolboxCategoryCallback('PYVARS',()=>{const v=allVars();
+ const L=[{kind:'button',text:'Make a variable',callbackKey:'NEWVAR'}];
+ if(!v.length)L.push({kind:'label',text:'Make a variable, then use it in blocks.'});
+ else{L.push({kind:'block',type:'py_set',fields:{N:v[0]},inputs:{V:N(0)}},{kind:'block',type:'py_change',fields:{N:v[0]},inputs:{V:N(1)}});
+  v.forEach(x=>L.push({kind:'block',type:'py_var',fields:{N:x}}))}
+ return L});
+new ResizeObserver(()=>Blockly.svgResize(ws)).observe($('blockly'));
+
+function setStatus(kind,msg){const s=$('status');s.className=kind;
+ $('stxt').textContent=msg||(kind==='syncing'?'Syncing…':'Blocks and code are in sync')}
+function gutter(){gut.textContent=Array.from({length:ta.value.split('\n').length},(_,i)=>i+1).join('\n');gut.scrollTop=ta.scrollTop}
+let tB=0,tC=0,pB=false,pC=false;
+
+function blocksToCode(){pB=false;ta.value=generate();gutter();setStatus('ok')}
+function codeToBlocks(){pC=false;
+ try{rebuild(parse(ta.value));setStatus('ok')}
+ catch(e){if(!e||!e.line)throw e;
+  setStatus('warn',`Line ${e.line}: ${e.msg}. Blocks show your last working version — editing them will replace your code.`)}}
+
+ws.addChangeListener(e=>{if(e.isUiEvent)return;pB=true;setStatus('syncing');clearTimeout(tB);tB=setTimeout(blocksToCode,350)});
+ta.addEventListener('input',()=>{pC=true;gutter();setStatus('syncing');clearTimeout(tC);tC=setTimeout(codeToBlocks,700)});
+ta.addEventListener('scroll',()=>gut.scrollTop=ta.scrollTop);
+function toggleComment(){const v=ta.value,s=ta.selectionStart,e=ta.selectionEnd;
+ const a=s?v.lastIndexOf('\n',s-1)+1:0;let b=v.indexOf('\n',e>s&&v[e-1]==='\n'?e-1:e);if(b<0)b=v.length;
+ const lines=v.slice(a,b).split('\n'),ne=lines.filter(l=>l.trim());
+ const un=ne.length>0&&ne.every(l=>l.trim()[0]==='#'),ind=Math.min(...ne.map(l=>l.match(/^ */)[0].length));
+ const out=lines.map(l=>!l.trim()?l:un?l.replace(/^(\s*)# ?/,'$1'):l.slice(0,ind)+'# '+l.slice(ind)).join('\n');
+ ta.setRangeText(out,a,b,'end');
+ if(s===e){const p=Math.max(a,s+out.length-(b-a));ta.setSelectionRange(p,p)}else ta.setSelectionRange(a,a+out.length);
+ ta.dispatchEvent(new Event('input'))}
+function indentLines(dir){const v=ta.value,s=ta.selectionStart,e=ta.selectionEnd;
+ const a=s?v.lastIndexOf('\n',s-1)+1:0;let b=v.indexOf('\n',e>s&&v[e-1]==='\n'?e-1:e);if(b<0)b=v.length;
+ const lines=v.slice(a,b).split('\n'),cut=lines.map(l=>Math.min(4,l.match(/^ */)[0].length));
+ const out=lines.map((l,i)=>dir>0?(l.trim()?'    '+l:l):l.slice(cut[i])).join('\n'),total=out.length-(b-a);
+ ta.setRangeText(out,a,b,'end');
+ const ns=Math.max(a,s+(dir>0?(lines[0].trim()?4:0):-cut[0]));ta.setSelectionRange(ns,Math.max(ns,e+total));
+ ta.dispatchEvent(new Event('input'))}
+function ins(t){ta.setRangeText(t,ta.selectionStart,ta.selectionEnd,'end');ta.dispatchEvent(new Event('input'))}
+ta.addEventListener('keydown',e=>{
+ if((e.ctrlKey||e.metaKey)&&e.key==='/'){e.preventDefault();toggleComment()}
+ else if(e.key==='Tab'){e.preventDefault();indentLines(e.shiftKey?-1:1)}
+ else if(e.key==='Enter'){e.preventDefault();const v=ta.value,s=ta.selectionStart,ls=s?v.lastIndexOf('\n',s-1)+1:0,line=v.slice(ls,s);
+  ins('\n'+line.match(/^ */)[0]+(line.trim().endsWith(':')?'    ':''))}});
+
+const EX={
+ func:'def greet(name):\n    print("Hello, " + name + "!")\n\ndef double(n):\n    return n * 2\n\ngreet("Sam")\nprint(double(21))\n',
+ ask:'name = input("What is your name? ")\nprint("Hello, " + name + "!")\n',
+ hello:'name = "Sam"\nprint("Hello, " + name + "!")\n',
+ loop:'total = 0\nfor i in range(5):\n    total += i\n    print(i)\nprint("Total: " + str(total))\n',
+ decide:'score = 0\nfor i in range(3):\n    score += 10\nname = "Sam"\nif score > 20:\n    print(name + " did great!")\nelif score > 10:\n    print("Nice try")\nelse:\n    print("Keep practising")\n'};
+function load(code){clearTimeout(tB);clearTimeout(tC);ta.value=code;gutter();codeToBlocks()}
+$('examples').addEventListener('change',e=>{if(e.target.value)load(EX[e.target.value]);e.target.value=''});
+
+/* ---------- Run (Skulpt) ---------- */
+function print(t,cls){if(cls){const s=document.createElement('span');s.className=cls;s.textContent=t;out.appendChild(s)}else out.appendChild(document.createTextNode(t));out.scrollTop=out.scrollHeight}
+$('clear').onclick=()=>out.textContent='';
+$('run').onclick=async()=>{
+ if(pB){clearTimeout(tB);blocksToCode()}
+ if(pC){clearTimeout(tC);codeToBlocks()}
+ out.textContent='';
+ if(typeof Sk==='undefined'){print('The Python engine could not load. Check your connection and reload.','err');return}
+ const btn=$('run');btn.disabled=true;
+ Sk.configure({output:t=>print(t),inputfunTakesPrompt:true,inputfun:p=>new Promise(res=>{print(p||'');const i=document.createElement('input');i.className='ask';i.setAttribute('aria-label','Type your answer and press Enter');out.appendChild(i);i.focus();out.scrollTop=out.scrollHeight;i.onkeydown=e=>{if(e.key==='Enter'){const v=i.value;i.replaceWith(document.createTextNode(v+'\n'));res(v)}}}),__future__:Sk.python3,execLimit:8000,yieldLimit:200,
+  read:x=>{if(Sk.builtinFiles===undefined||Sk.builtinFiles.files[x]===undefined)throw"File not found: '"+x+"'";return Sk.builtinFiles.files[x]}});
+ try{await Sk.misceval.asyncToPromise(()=>Sk.importMainWithBody('<stdin>',false,ta.value,true))}
+ catch(err){print((out.textContent&&!out.textContent.endsWith('\n')?'\n':'')+String(err),'err')}
+ btn.disabled=false};
+
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();e.stopPropagation();if(!$('run').disabled)$('run').click()}},true);
+
+load(EX.decide);
+</script>
+</body>
+</html>
