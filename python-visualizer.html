@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Python Visualizer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<style>
+*{box-sizing:border-box}
+body{margin:0;height:100vh;display:flex;flex-direction:column;font:14px system-ui,sans-serif;background:#f4f6fa;color:#222}
+header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:#fff;border-bottom:1px solid #d8dce5}
+button{font:inherit;padding:6px 14px;border:0;border-radius:6px;cursor:pointer;background:#e3e7ef}
+button:disabled{opacity:.4;cursor:default}
+#go{color:#fff;font-weight:700;min-width:110px;background:#1f9d4c}
+#go.edit{background:#d93a3a}
+#nav{display:none;gap:6px;align-items:center}
+#opts{margin-left:auto;display:flex;gap:12px;align-items:center;font-size:13px}
+main{flex:1;display:grid;grid-template-columns:minmax(300px,40%) 1fr;gap:10px;padding:10px;min-height:0}
+.col{display:flex;flex-direction:column;gap:10px;min-height:0}
+.pan{background:#fff;border:1px solid #d8dce5;border-radius:8px;display:flex;flex-direction:column;min-height:0}
+.pan>h3{margin:0;padding:5px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#667;border-bottom:1px solid #eceff4}
+#ed{flex:1;min-height:0}.CodeMirror{height:100%;font:14px/1.45 ui-monospace,Consolas,monospace}
+#stdin{height:90px;border:0;padding:8px;font:14px ui-monospace,Consolas,monospace;resize:vertical;outline:0}
+.marks{width:20px}.mk{font-size:13px;text-align:center}
+.cl-next{background:#fff3b0!important}.cl-last{background:#d9ecff!important}
+#viz{flex:1;position:relative;overflow:auto;padding:10px;display:flex;gap:30px;align-items:flex-start}
+#viz>svg{position:absolute;left:0;top:0;pointer-events:none}
+#frames{display:flex;flex-direction:column;gap:8px;min-width:230px}
+#heap{display:flex;flex-wrap:wrap;gap:16px 26px;align-content:flex-start;flex:1}
+.fr{border:2px solid #9ab;border-radius:8px;background:#f0f6ff;min-width:220px}
+.fr.cur{border-color:#2a6fdb;background:#e4efff}
+.fr>.fh{padding:3px 8px;font-weight:700;background:#cfe0f7;border-radius:6px 6px 0 0}
+.row{display:flex;align-items:center;gap:6px;padding:3px 8px;font-family:ui-monospace,Consolas,monospace}
+.row b{min-width:40px}.ic{display:inline-block;min-width:22px;text-align:center;font-size:11px;border-radius:9px;background:#6a7ea8;color:#fff;padding:1px 4px}
+.prim{color:#0a5}.t-str{color:#b4570a}.t-NoneType{color:#889}
+.ptr{display:inline-block;width:11px;height:11px;border-radius:50%;background:#e8590c}
+.flash{animation:fl 1.1s}@keyframes fl{0%,40%{background:#ffe066}100%{background:transparent}}
+.obj{border:2px solid #666;border-radius:8px;background:#fff;position:relative;touch-action:none}
+.oh{padding:2px 8px;font-weight:700;cursor:grab;color:#fff;border-radius:5px 5px 0 0;font-size:12px;user-select:none;background:#556}
+.k-List .oh{background:#2f7ad8}.k-Tuple .oh{background:#7b57c9}.k-Dict .oh{background:#c2570c}.k-Set .oh{background:#198a8a}
+.k-Object .oh{background:#a33a7a}.k-Class .oh,.k-Function .oh,.k-Module .oh{background:#777}
+.cells{display:flex}.cell{border-right:1px solid #ccd;padding:2px 8px;text-align:center;min-width:34px}
+.cell:last-child{border:0}.cell i{display:block;font-size:10px;color:#99a;font-style:normal}
+#cons{height:150px;margin:0;padding:8px;overflow:auto;background:#1b1e27;color:#e6e6e6;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap;border-radius:0 0 8px 8px}
+#cons .i{color:#7ee787}#cons .e{color:#ff7b72}
+#hint{color:#889;padding:20px}
+</style></head><body>
+<header>
+ <button id="go" disabled>Loading…</button>
+ <span id="nav"><button id="b1">⏮ First</button><button id="b2">◀ Previous</button><button id="b3">Next ▶</button><button id="b4">Last ⏭</button><b id="pos"></b></span>
+ <div id="opts">
+  <label><input type="checkbox" id="oObj"> Hide objects (show repr)</label>
+  <label><input type="checkbox" id="oFn"> Hide functions/classes/modules</label>
+  <label>Objects for <select id="oScope"><option value="all">All frames</option><option value="cur">Current frame</option></select></label>
+ </div>
+</header>
+<main>
+ <div class="col">
+  <div class="pan" style="flex:1"><h3>Python code (Ctrl-Enter)</h3><div id="ed"></div></div>
+  <div class="pan"><h3>Input (one line per input() call)</h3><textarea id="stdin">Ada</textarea></div>
+ </div>
+ <div class="col">
+  <div class="pan" style="flex:1"><h3>Frames &amp; Objects</h3><div id="viz"><svg id="svg"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#e8590c"/></marker></defs></svg><div id="hint">Click <b>Visualize</b> to run your program step by step.</div></div></div>
+  <div class="pan"><h3>Console</h3><pre id="cons"></pre></div>
+ </div>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script>
+const PY = String.raw`
+import sys, json, builtins, types, traceback
+class Stop(BaseException): pass
+def short(v):
+    if isinstance(v, types.ModuleType): return "module " + v.__name__
+    if isinstance(v, type): return "class " + v.__name__
+    if isinstance(v, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)): return "ƒ " + getattr(v, "__name__", "?")
+    try: r = repr(v)
+    except Exception: r = "<" + type(v).__name__ + ">"
+    if "object at 0x" in r: r = type(v).__name__ + " object"
+    return r if len(r) < 60 else r[:57] + "..."
+def run_trace(src, inputs_json):
+    inp = json.loads(inputs_json); steps = []; events = []; ids = {}; keep = []; MAX = 2000
+    def sid(o):
+        k = id(o)
+        if k not in ids: ids[k] = len(ids) + 1; keep.append(o)
+        return ids[k]
+    def enc(v, heap):
+        if isinstance(v, (int, float, str, bool, type(None), complex)):
+            r = repr(v); return ["p", r if len(r) < 60 else r[:57] + "...", type(v).__name__]
+        n = sid(v)
+        if n not in heap: describe(v, n, heap)
+        return ["r", n]
+    def describe(v, n, heap):
+        o = {"t": type(v).__name__, "r": short(v), "k": type(v).__name__}; heap[n] = o
+        if isinstance(v, (list, tuple)):
+            o["k"] = "List" if isinstance(v, list) else "Tuple"; o["items"] = [enc(x, heap) for x in list(v)[:40]]
+        elif isinstance(v, (set, frozenset)):
+            o["k"] = "Set"; o["items"] = [enc(x, heap) for x in list(v)[:40]]
+        elif isinstance(v, dict):
+            o["k"] = "Dict"; o["pairs"] = [[enc(a, heap), enc(b, heap)] for a, b in list(v.items())[:40]]
+        elif isinstance(v, types.ModuleType): o["k"] = "Module"
+        elif isinstance(v, type): o["k"] = "Class"
+        elif isinstance(v, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)): o["k"] = "Function"
+        elif hasattr(v, "__dict__"):
+            o["k"] = "Object"; o["attrs"] = [[a, enc(b, heap)] for a, b in list(vars(v).items())[:40]]
+    def snap(frame, nxt, has_ret=False, ret=None):
+        heap = {}; chain = []; f = frame
+        while f is not None:
+            if f.f_code.co_filename == "<user>": chain.append(f)
+            f = f.f_back
+        fr = []
+        for f in reversed(chain):
+            d = f.f_globals if f.f_code.co_name == "<module>" else f.f_locals
+            fr.append({"n": f.f_code.co_name, "v": [[k, enc(x, heap)] for k, x in list(d.items()) if not k.startswith("__")]})
+        s = {"line": nxt, "f": fr, "h": heap}
+        if has_ret: s["ret"] = enc(ret, heap)
+        return s
+    def tracer(frame, event, arg):
+        if frame.f_code.co_filename != "<user>": return None
+        if event == "call": return tracer
+        if event == "line" or event == "return":
+            if len(steps) >= MAX: raise Stop()
+            if event == "line": steps.append(snap(frame, frame.f_lineno))
+            else:
+                b = frame.f_back; top = frame.f_code.co_name == "<module>"
+                nxt = b.f_lineno if (b is not None and not top and b.f_code.co_filename == "<user>") else None
+                steps.append(snap(frame, nxt, not top, arg))
+        return tracer
+    class W:
+        def write(self, s): events.append([len(steps), "o", s]); return len(s)
+        def flush(self): pass
+    def my_input(prompt=""):
+        if prompt: events.append([len(steps), "o", str(prompt)])
+        if not inp: raise EOFError("No more input lines")
+        s = inp.pop(0); events.append([len(steps), "i", s + "\n"]); return s
+    old_out, old_in = sys.stdout, builtins.input
+    sys.stdout = W(); builtins.input = my_input
+    try:
+        code = compile(src, "<user>", "exec"); sys.settrace(tracer); exec(code, {"__name__": "__main__"})
+    except Stop:
+        events.append([len(steps), "e", "Stopped: more than %d steps (infinite loop?)\n" % MAX])
+    except BaseException as e:
+        ln = getattr(e, "lineno", None); tb = e.__traceback__
+        while tb is not None:
+            if tb.tb_frame.f_code.co_filename == "<user>": ln = tb.tb_lineno
+            tb = tb.tb_next
+        events.append([len(steps), "e", ("Line %s: " % ln if ln else "") + "".join(traceback.format_exception_only(type(e), e))])
+    finally:
+        sys.settrace(None); sys.stdout = old_out; builtins.input = old_in
+    return json.dumps({"steps": steps, "events": events})
+`;
+const SAMPLE = `name = input("Name? ")
+
+def greet(who, times):
+    msg = ""
+    for i in range(times):
+        msg = msg + "Hi " + who + "! "
+    return msg
+
+scores = [3, 5]
+scores.append(len(name))
+pet = {"name": name, "scores": scores}
+print(greet(name, 2))
+print(pet)
+`;
+const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const cm = CodeMirror($('#ed'), {value: SAMPLE, mode: 'python', lineNumbers: true, indentUnit: 4,
+  gutters: ['CodeMirror-linenumbers', 'marks'], extraKeys: {Tab: c => c.replaceSelection('    ')}});
+const ICON = {int:'#',float:'.5',str:'"',bool:'✓',NoneType:'∅',list:'[ ]',tuple:'( )',dict:'{ }',set:'{·}',function:'ƒ',type:'C',module:'M'};
+let py, mode = 'edit', steps = [], events = [], cur = 0, prevF = null, prevH = null, offs = {};
+const opts = () => ({noObj: $('#oObj').checked, noFn: $('#oFn').checked, scope: $('#oScope').value});
+
+function val(v, h, o) {
+  if (v[0] === 'p') return `<span class="prim t-${v[2]}">${esc(v[1])}</span>`;
+  const x = h[v[1]];
+  if (o.noObj || (o.noFn && ['Function','Class','Module'].includes(x.k))) return `<span class="prim">${esc(x.r)}</span>`;
+  return `<span class="ptr" data-t="${v[1]}"></span>`;
+}
+const refs = x => [].concat(x.items || [], (x.pairs || []).flat(), (x.attrs || []).map(a => a[1])).filter(v => v[0] === 'r').map(v => v[1]);
+const icon = (v, h) => { const t = v[0] === 'p' ? v[2] : h[v[1]].t; return `<span class="ic" title="${t}">${ICON[t] || '◆'}</span>`; };
+
+function render() {
+  const s = steps[cur], prev = cur > 0 ? steps[cur - 1] : null, o = opts(), h = s.h;
+  $('#pos').textContent = `Step ${cur + 1} of ${steps.length}`;
+  cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); });
+  const mark = (ln, cls, ic) => { if (!ln) return; cm.addLineClass(ln - 1, 'background', cls); const e = document.createElement('div'); e.className = 'mk'; e.textContent = ic; cm.setGutterMarker(ln - 1, 'marks', e); };
+  if (prev) mark(prev.line, 'cl-last', '✔');
+  mark(s.line, 'cl-next', '▶');
+  if (s.line) cm.scrollIntoView({line: s.line - 1, ch: 0}, 50);
+  // frames
+  const F = {}, n = s.f.length;
+  let html = '';
+  s.f.forEach((f, i) => {
+    html = `<div class="fr${i === n - 1 ? ' cur' : ''}"><div class="fh">${f.n === '<module>' ? 'Global frame' : esc(f.n) + '()'}</div>` +
+      f.v.map(([k, v]) => { const key = i + f.n + ':' + k, js = JSON.stringify(v); F[key] = js;
+        const ch = !prevF || prevF[key] !== js ? ' flash' : '';
+        return `<div class="row${prevF ? ch : ''}">${icon(v, h)}<b>${esc(k)}</b>${val(v, h, o)}</div>`; }).join('') +
+      (i === n - 1 && s.ret ? `<div class="row">↩<b>return</b>${val(s.ret, h, o)}</div>` : '') + '</div>' + html;
+  });
+  $('#hint')?.remove();
+  // heap
+  let vis = Object.keys(h).map(Number);
+  if (o.scope === 'cur' && n) { const seen = new Set(), q = s.f[n - 1].v.map(a => a[1]).filter(v => v[0] === 'r').map(v => v[1]);
+    while (q.length) { const x = q.pop(); if (!seen.has(x)) { seen.add(x); q.push(...refs(h[x])); } } vis = vis.filter(x => seen.has(x)); }
+  if (o.noFn) vis = vis.filter(x => !['Function','Class','Module'].includes(h[x].k));
+  const H = {}, cell = (v, lbl) => `<div class="cell"><i>${lbl}</i>${val(v, h, o)}</div>`;
+  const hh = o.noObj ? '' : vis.sort((a, b) => a - b).map(id => {
+    const x = h[id], js = JSON.stringify(x); H[id] = js; let body;
+    if (x.items) body = `<div class="cells">${x.items.map((v, i) => cell(v, x.k === 'Set' ? '' : i)).join('') || '<div class="cell">empty</div>'}</div>`;
+    else if (x.pairs) body = x.pairs.map(([a, b]) => `<div class="row">${val(a, h, o)}→${val(b, h, o)}</div>`).join('') || '<div class="row">empty</div>';
+    else if (x.attrs) body = x.attrs.map(([k, v]) => `<div class="row"><b>${esc(k)}</b>${val(v, h, o)}</div>`).join('') || '<div class="row">no attributes</div>';
+    else body = `<div class="row prim">${esc(x.r)}</div>`;
+    const [dx, dy] = offs[id] || [0, 0], fl = prevH && prevH[id] !== js ? ' flash' : '';
+    return `<div class="obj k-${x.k}" id="o${id}" style="transform:translate(${dx}px,${dy}px)"><div class="oh" data-id="${id}">#${id} ${x.k}${x.k === 'Object' ? ' · ' + esc(x.t) : ''}</div><div class="${fl}">${body}</div></div>`;
+  }).join('');
+  prevF = F; prevH = H;
+  const v = $('#viz'); [...v.children].forEach(c => c.id !== 'svg' && c.remove());
+  v.insertAdjacentHTML('beforeend', `<div id="frames">${html}</div><div id="heap">${hh}</div>`);
+  drawArrows();
+  // console
+  $('#cons').innerHTML = events.filter(e => e[0] <= cur).map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('');
+  $('#cons').scrollTop = 1e9;
+}
+function drawArrows() {
+  const v = $('#viz'), svg = $('#svg'); svg.setAttribute('width', 0); svg.setAttribute('height', 0);
+  const W = v.scrollWidth, Hh = v.scrollHeight, vr = v.getBoundingClientRect();
+  svg.setAttribute('width', W); svg.setAttribute('height', Hh);
+  svg.querySelectorAll('path').forEach(p => p.remove());
+  v.querySelectorAll('.ptr').forEach(p => {
+    const t = $('#o' + p.dataset.t); if (!t) return;
+    const a = p.getBoundingClientRect(), b = t.getBoundingClientRect();
+    const x1 = a.left + a.width / 2 - vr.left + v.scrollLeft, y1 = a.top + a.height / 2 - vr.top + v.scrollTop;
+    const x2 = b.left - vr.left + v.scrollLeft, y2 = b.top + 14 - vr.top + v.scrollTop, d = Math.max(30, Math.abs(x2 - x1) / 2);
+    const e = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    e.setAttribute('d', `M${x1} ${y1}C${x1 + d} ${y1} ${x2 - d} ${y2} ${x2} ${y2}`);
+    e.setAttribute('fill', 'none'); e.setAttribute('stroke', '#e8590c'); e.setAttribute('stroke-width', 1.6); e.setAttribute('marker-end', 'url(#ah)');
+    svg.appendChild(e);
+  });
+}
+// drag & drop of heap objects
+$('#viz').addEventListener('pointerdown', e => {
+  const hd = e.target.closest('.oh'); if (!hd) return;
+  const id = hd.dataset.id, el = hd.parentElement, [ox, oy] = offs[id] || [0, 0], sx = e.clientX, sy = e.clientY;
+  hd.setPointerCapture(e.pointerId);
+  const mv = ev => { offs[id] = [ox + ev.clientX - sx, oy + ev.clientY - sy]; el.style.transform = `translate(${offs[id][0]}px,${offs[id][1]}px)`; drawArrows(); };
+  hd.addEventListener('pointermove', mv); hd.addEventListener('pointerup', () => hd.removeEventListener('pointermove', mv), {once: true});
+});
+window.addEventListener('resize', () => mode === 'viz' && drawArrows());
+
+function go(i) { cur = Math.max(0, Math.min(steps.length - 1, i)); render(); }
+$('#b1').onclick = () => go(0); $('#b2').onclick = () => go(cur - 1);
+$('#b3').onclick = () => go(cur + 1); $('#b4').onclick = () => go(steps.length - 1);
+['oObj', 'oFn', 'oScope'].forEach(id => $('#' + id).onchange = () => mode === 'viz' && (prevF = prevH = null, render()));
+
+function setEdit() {
+  if (mode === 'edit') return; mode = 'edit';
+  $('#go').textContent = 'Visualize'; $('#go').classList.remove('edit'); $('#nav').style.display = 'none';
+  cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); });
+  [...$('#viz').children].forEach(c => c.id !== 'svg' && c.remove());
+  $('#viz').insertAdjacentHTML('beforeend', '<div id="hint">Click <b>Visualize</b> to run your program step by step.</div>');
+  $('#cons').textContent = '';
+}
+function setViz() {
+  const lines = $('#stdin').value.split('\n'); if (lines.at(-1) === '') lines.pop();
+  const r = JSON.parse(py.globals.get('run_trace')(cm.getValue(), JSON.stringify(lines)));
+  steps = r.steps; events = r.events; offs = {}; prevF = prevH = null; cur = 0;
+  if (!steps.length) { $('#cons').innerHTML = events.map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('') || 'Nothing to run.'; return; }
+  mode = 'viz'; $('#go').textContent = 'Edit'; $('#go').classList.add('edit'); $('#nav').style.display = 'flex'; render();
+}
+const toggle = () => { if (!py) return; mode === 'edit' ? setViz() : setEdit(); };
+$('#go').onclick = toggle;
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); toggle(); }
+  else if (mode === 'viz' && !e.target.closest('#ed,textarea') && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) go(cur + (e.key === 'ArrowRight' ? 1 : -1));
+}, true);
+cm.on('change', setEdit); $('#stdin').addEventListener('input', setEdit);
+
+(async () => {
+  py = await loadPyodide(); py.runPython(PY);
+  $('#go').disabled = false; $('#go').textContent = 'Visualize';
+})();
+</script></body></html>
