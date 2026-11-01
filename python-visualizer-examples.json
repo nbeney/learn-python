@@ -1,0 +1,45 @@
+{
+ "Basics": [
+  {
+   "title": "Variables and types",
+   "code": "age = 12\nname = \"Zoe\"\nheight = 1.55\nis_kid = age < 18\nnothing = None\nage = age + 1\n"
+  },
+  {
+   "title": "Loop and input",
+   "code": "n = int(input(\"How many? \"))\ntotal = 0\nfor i in range(1, n + 1):\n    total = total + i\nprint(\"Sum:\", total)\n",
+   "stdin": "4"
+  }
+ ],
+ "Functions": [
+  {
+   "title": "Factorial (recursion)",
+   "code": "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\n\nprint(fact(4))\n"
+  }
+ ],
+ "Data structures": [
+  {
+   "title": "Lists and aliases",
+   "code": "a = [1, 2, 3]\nb = a\nb.append(4)\nc = list(a)\nc.append(5)\nprint(a, b, c)\n"
+  },
+  {
+   "title": "Grid (list of lists)",
+   "code": "grid = [[0] * 3 for _ in range(3)]\nfor i in range(3):\n    grid[i][i] = 1\nprint(grid)\n"
+  },
+  {
+   "title": "Dictionary",
+   "code": "ages = {\"Ann\": 10, \"Bob\": 12}\nages[\"Cy\"] = 9\nfor k in ages:\n    ages[k] += 1\nprint(ages)\n"
+  }
+ ],
+ "Classes": [
+  {
+   "title": "Person class",
+   "code": "class Person:\n    def __init__(self, name):\n        self.name = name\n        self.friends = []\n\n    def add_friend(self, other):\n        self.friends.append(other)\n\nann = Person(\"Ann\")\nbob = Person(\"Bob\")\nann.add_friend(bob)\n"
+  }
+ ],
+ "Errors": [
+  {
+   "title": "ZeroDivisionError",
+   "code": "def ratio(a, b):\n    return a / b\n\nprint(ratio(6, 3))\nprint(ratio(1, 0))\n"
+  }
+ ]
+}

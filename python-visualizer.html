@@ -11,7 +11,7 @@ button:disabled{opacity:.4;cursor:default}
 #go{color:#fff;font-weight:700;min-width:110px;background:#1f9d4c}
 #go.edit{background:#d93a3a}
 #nav{display:none;gap:6px;align-items:center}
-#opts{margin-left:auto;display:flex;gap:12px;align-items:center;font-size:13px}
+#opts{margin-left:auto;display:none;gap:12px;align-items:center;font-size:13px}
 main{flex:1;display:grid;grid-template-columns:minmax(300px,40%) 1fr;gap:10px;padding:10px;min-height:0}
 .col{display:flex;flex-direction:column;gap:10px;min-height:0}
 .pan{background:#fff;border:1px solid #d8dce5;border-radius:8px;display:flex;flex-direction:column;min-height:0}
@@ -19,9 +19,9 @@ main{flex:1;display:grid;grid-template-columns:minmax(300px,40%) 1fr;gap:10px;pa
 #ed{flex:1;min-height:0}.CodeMirror{height:100%;font:14px/1.45 ui-monospace,Consolas,monospace}
 #stdin{height:90px;border:0;padding:8px;font:14px ui-monospace,Consolas,monospace;resize:vertical;outline:0}
 .marks{width:20px}.mk{font-size:13px;text-align:center}
-.cl-next{background:#fff3b0!important}.cl-last{background:#d9ecff!important}
+.cl-next{background:#d9ecff!important}.cl-last{background:#e6e6e6!important}
 #viz{flex:1;position:relative;overflow:auto;padding:10px;display:flex;gap:30px;align-items:flex-start}
-#viz>svg{position:absolute;left:0;top:0;pointer-events:none}
+#viz>svg{position:absolute;left:0;top:0;pointer-events:none;z-index:5}
 #frames{display:flex;flex-direction:column;gap:8px;min-width:230px}
 #heap{display:flex;flex-wrap:wrap;gap:16px 26px;align-content:flex-start;flex:1}
 .fr{border:2px solid #9ab;border-radius:8px;background:#f0f6ff;min-width:220px}
@@ -41,13 +41,17 @@ main{flex:1;display:grid;grid-template-columns:minmax(300px,40%) 1fr;gap:10px;pa
 #cons{height:150px;margin:0;padding:8px;overflow:auto;background:#1b1e27;color:#e6e6e6;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap;border-radius:0 0 8px 8px}
 #cons .i{color:#7ee787}#cons .e{color:#ff7b72}
 #hint{color:#889;padding:20px}
+#sl{width:220px}#pos{min-width:110px;text-align:center}#cons .s{color:#8b93a7}
+table.g{border-collapse:collapse}.g td,.g th{border:1px solid #ccd;padding:2px 8px;text-align:center}.g th{background:#eef;font-size:10px;color:#889}
 </style></head><body>
 <header>
  <button id="go" disabled>Loading…</button>
- <span id="nav"><button id="b1">⏮ First</button><button id="b2">◀ Previous</button><button id="b3">Next ▶</button><button id="b4">Last ⏭</button><b id="pos"></b></span>
+ <select id="ex" title="Load an example"><option value="">Examples…</option></select>
+ <span id="nav"><button id="b1" title="First step (Ctrl+←)">⏮</button><button id="b2" title="Previous step (←)">◀</button><b id="pos"></b><button id="b3" title="Next step (→)">▶</button><button id="b4" title="Last step (Ctrl+→)">⏭</button><input type="range" id="sl" min="0" value="0" title="Current step"></span>
  <div id="opts">
   <label><input type="checkbox" id="oObj"> Hide objects (show repr)</label>
-  <label><input type="checkbox" id="oFn"> Hide functions/classes/modules</label>
+  <label><input type="checkbox" id="oF"> Hide functions</label><label><input type="checkbox" id="oC"> Hide classes</label><label><input type="checkbox" id="oM"> Hide modules</label>
+  <label><input type="checkbox" id="oGrid"> Lists of lists as 2D</label>
   <label>Objects for <select id="oScope"><option value="all">All frames</option><option value="cur">Current frame</option></select></label>
  </div>
 </header>
@@ -63,10 +67,11 @@ main{flex:1;display:grid;grid-template-columns:minmax(300px,40%) 1fr;gap:10px;pa
 </main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/comment/comment.min.js"></script>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
 <script>
 const PY = String.raw`
-import sys, json, builtins, types, traceback
+import sys, json, builtins, types, traceback, linecache
 class Stop(BaseException): pass
 def short(v):
     if isinstance(v, types.ModuleType): return "module " + v.__name__
@@ -77,7 +82,7 @@ def short(v):
     if "object at 0x" in r: r = type(v).__name__ + " object"
     return r if len(r) < 60 else r[:57] + "..."
 def run_trace(src, inputs_json):
-    inp = json.loads(inputs_json); steps = []; events = []; ids = {}; keep = []; MAX = 2000
+    inp = json.loads(inputs_json); steps = []; events = []; seen_exc = {}; ids = {}; keep = []; MAX = 2000
     def sid(o):
         k = id(o)
         if k not in ids: ids[k] = len(ids) + 1; keep.append(o)
@@ -97,7 +102,7 @@ def run_trace(src, inputs_json):
         elif isinstance(v, dict):
             o["k"] = "Dict"; o["pairs"] = [[enc(a, heap), enc(b, heap)] for a, b in list(v.items())[:40]]
         elif isinstance(v, types.ModuleType): o["k"] = "Module"
-        elif isinstance(v, type): o["k"] = "Class"
+        elif isinstance(v, type): o["k"] = "Class"; o["nm"] = v.__name__; o["meths"] = [a for a, b in vars(v).items() if isinstance(b, types.FunctionType)]
         elif isinstance(v, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)): o["k"] = "Function"
         elif hasattr(v, "__dict__"):
             o["k"] = "Object"; o["attrs"] = [[a, enc(b, heap)] for a, b in list(vars(v).items())[:40]]
@@ -116,6 +121,10 @@ def run_trace(src, inputs_json):
     def tracer(frame, event, arg):
         if frame.f_code.co_filename != "<user>": return None
         if event == "call": return tracer
+        if event == "exception":
+            if seen_exc.get("e") is not arg[1] and not isinstance(arg[1], StopIteration):
+                seen_exc["e"] = arg[1]; s = snap(frame, frame.f_lineno); s["exc"] = 1; steps.append(s)
+            return tracer
         if event == "line" or event == "return":
             if len(steps) >= MAX: raise Stop()
             if event == "line": steps.append(snap(frame, frame.f_lineno))
@@ -134,15 +143,14 @@ def run_trace(src, inputs_json):
     old_out, old_in = sys.stdout, builtins.input
     sys.stdout = W(); builtins.input = my_input
     try:
-        code = compile(src, "<user>", "exec"); sys.settrace(tracer); exec(code, {"__name__": "__main__"})
+        code = compile(src, "<user>", "exec"); linecache.cache["<user>"] = (len(src), None, src.splitlines(True), "<user>"); sys.settrace(tracer); exec(code, {"__name__": "__main__"})
     except Stop:
-        events.append([len(steps), "e", "Stopped: more than %d steps (infinite loop?)\n" % MAX])
+        events.append([len(steps) - 1, "e", "Stopped: more than %d steps (infinite loop?)\n" % MAX])
     except BaseException as e:
-        ln = getattr(e, "lineno", None); tb = e.__traceback__
-        while tb is not None:
-            if tb.tb_frame.f_code.co_filename == "<user>": ln = tb.tb_lineno
-            tb = tb.tb_next
-        events.append([len(steps), "e", ("Line %s: " % ln if ln else "") + "".join(traceback.format_exception_only(type(e), e))])
+        if isinstance(e, SyntaxError) or e.__traceback__ is None or not steps:
+            ln = getattr(e, "lineno", None); msg = ("Line %s: " % ln if ln else "") + "".join(traceback.format_exception_only(type(e), e))
+        else: msg = "".join(traceback.format_exception(type(e), e, e.__traceback__.tb_next))
+        events.append([max(len(steps) - 1, 0), "e", msg])
     finally:
         sys.settrace(None); sys.stdout = old_out; builtins.input = old_in
     return json.dumps({"steps": steps, "events": events})
@@ -163,15 +171,15 @@ print(pet)
 `;
 const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const cm = CodeMirror($('#ed'), {value: SAMPLE, mode: 'python', lineNumbers: true, indentUnit: 4,
-  gutters: ['CodeMirror-linenumbers', 'marks'], extraKeys: {Tab: c => c.replaceSelection('    ')}});
+  gutters: ['CodeMirror-linenumbers', 'marks'], extraKeys: {Tab: c => c.replaceSelection('    '), 'Ctrl-/': 'toggleComment', 'Cmd-/': 'toggleComment'}});
 const ICON = {int:'#',float:'.5',str:'"',bool:'✓',NoneType:'∅',list:'[ ]',tuple:'( )',dict:'{ }',set:'{·}',function:'ƒ',type:'C',module:'M'};
 let py, mode = 'edit', steps = [], events = [], cur = 0, prevF = null, prevH = null, offs = {};
-const opts = () => ({noObj: $('#oObj').checked, noFn: $('#oFn').checked, scope: $('#oScope').value});
+const opts = () => ({noObj: $('#oObj').checked, hide: new Set([['oF','Function'],['oC','Class'],['oM','Module']].filter(a => $('#' + a[0]).checked).map(a => a[1])), grid: $('#oGrid').checked, scope: $('#oScope').value});
 
 function val(v, h, o) {
   if (v[0] === 'p') return `<span class="prim t-${v[2]}">${esc(v[1])}</span>`;
   const x = h[v[1]];
-  if (o.noObj || (o.noFn && ['Function','Class','Module'].includes(x.k))) return `<span class="prim">${esc(x.r)}</span>`;
+  if (o.noObj || o.hide.has(x.k)) return `<span class="prim">${esc(x.r)}</span>`;
   return `<span class="ptr" data-t="${v[1]}"></span>`;
 }
 const refs = x => [].concat(x.items || [], (x.pairs || []).flat(), (x.attrs || []).map(a => a[1])).filter(v => v[0] === 'r').map(v => v[1]);
@@ -180,17 +188,18 @@ const icon = (v, h) => { const t = v[0] === 'p' ? v[2] : h[v[1]].t; return `<spa
 function render() {
   const s = steps[cur], prev = cur > 0 ? steps[cur - 1] : null, o = opts(), h = s.h;
   $('#pos').textContent = `Step ${cur + 1} of ${steps.length}`;
+  $('#sl').max = steps.length - 1; $('#sl').value = cur; $('#b1').disabled = $('#b2').disabled = cur === 0; $('#b3').disabled = $('#b4').disabled = cur === steps.length - 1;
   cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); });
   const mark = (ln, cls, ic) => { if (!ln) return; cm.addLineClass(ln - 1, 'background', cls); const e = document.createElement('div'); e.className = 'mk'; e.textContent = ic; cm.setGutterMarker(ln - 1, 'marks', e); };
   if (prev) mark(prev.line, 'cl-last', '✔');
-  mark(s.line, 'cl-next', '▶');
+  mark(s.line, 'cl-next', s.exc && cur === steps.length - 1 ? '✖' : '▶');
   if (s.line) cm.scrollIntoView({line: s.line - 1, ch: 0}, 50);
   // frames
   const F = {}, n = s.f.length;
   let html = '';
   s.f.forEach((f, i) => {
     html = `<div class="fr${i === n - 1 ? ' cur' : ''}"><div class="fh">${f.n === '<module>' ? 'Global frame' : esc(f.n) + '()'}</div>` +
-      f.v.map(([k, v]) => { const key = i + f.n + ':' + k, js = JSON.stringify(v); F[key] = js;
+      f.v.map(([k, v]) => { const key = i + f.n + ':' + k, js = JSON.stringify(v) + (o.noObj && v[0] === 'r' ? JSON.stringify(h[v[1]]) : ''); F[key] = js;
         const ch = !prevF || prevF[key] !== js ? ' flash' : '';
         return `<div class="row${prevF ? ch : ''}">${icon(v, h)}<b>${esc(k)}</b>${val(v, h, o)}</div>`; }).join('') +
       (i === n - 1 && s.ret ? `<div class="row">↩<b>return</b>${val(s.ret, h, o)}</div>` : '') + '</div>' + html;
@@ -200,23 +209,27 @@ function render() {
   let vis = Object.keys(h).map(Number);
   if (o.scope === 'cur' && n) { const seen = new Set(), q = s.f[n - 1].v.map(a => a[1]).filter(v => v[0] === 'r').map(v => v[1]);
     while (q.length) { const x = q.pop(); if (!seen.has(x)) { seen.add(x); q.push(...refs(h[x])); } } vis = vis.filter(x => seen.has(x)); }
-  if (o.noFn) vis = vis.filter(x => !['Function','Class','Module'].includes(h[x].k));
+  const isGrid = x => o.grid && x.k === 'List' && x.items.length && x.items.every(v => v[0] === 'r' && h[v[1]].k === 'List' && h[v[1]].items.every(w => w[0] === 'p'));
+  const rows = new Set(); vis.forEach(id => isGrid(h[id]) && h[id].items.forEach(v => rows.add(v[1])));
+  vis = vis.filter(x => !o.hide.has(h[x].k) && !rows.has(x));
   const H = {}, cell = (v, lbl) => `<div class="cell"><i>${lbl}</i>${val(v, h, o)}</div>`;
   const hh = o.noObj ? '' : vis.sort((a, b) => a - b).map(id => {
-    const x = h[id], js = JSON.stringify(x); H[id] = js; let body;
-    if (x.items) body = `<div class="cells">${x.items.map((v, i) => cell(v, x.k === 'Set' ? '' : i)).join('') || '<div class="cell">empty</div>'}</div>`;
+    const x = h[id], js = JSON.stringify(x) + (isGrid(x) ? JSON.stringify(x.items.map(v => h[v[1]])) : ''); H[id] = js; let body;
+    if (isGrid(x)) { const cols = Math.max(...x.items.map(v => h[v[1]].items.length)); body = `<table class="g"><tr><th></th>${Array.from({length: cols}, (_, c) => `<th>${c}</th>`).join('')}</tr>${x.items.map((v, r) => `<tr><th>${r}</th>${h[v[1]].items.map(w => `<td>${val(w, h, o)}</td>`).join('')}</tr>`).join('')}</table>`; }
+    else if (x.items) body = `<div class="cells">${x.items.map((v, i) => cell(v, x.k === 'Set' ? '' : i)).join('') || '<div class="cell">empty</div>'}</div>`;
     else if (x.pairs) body = x.pairs.map(([a, b]) => `<div class="row">${val(a, h, o)}→${val(b, h, o)}</div>`).join('') || '<div class="row">empty</div>';
+    else if (x.meths) body = x.meths.map(m => `<div class="row">ƒ ${esc(m)}()</div>`).join('') || '<div class="row">no methods</div>';
     else if (x.attrs) body = x.attrs.map(([k, v]) => `<div class="row"><b>${esc(k)}</b>${val(v, h, o)}</div>`).join('') || '<div class="row">no attributes</div>';
     else body = `<div class="row prim">${esc(x.r)}</div>`;
     const [dx, dy] = offs[id] || [0, 0], fl = prevH && prevH[id] !== js ? ' flash' : '';
-    return `<div class="obj k-${x.k}" id="o${id}" style="transform:translate(${dx}px,${dy}px)"><div class="oh" data-id="${id}">#${id} ${x.k}${x.k === 'Object' ? ' · ' + esc(x.t) : ''}</div><div class="${fl}">${body}</div></div>`;
+    return `<div class="obj k-${x.k}" id="o${id}" style="transform:translate(${dx}px,${dy}px)"><div class="oh" data-id="${id}">#${id} ${x.k}${x.k === 'Object' ? ' · ' + esc(x.t) : x.k === 'Class' ? ' - ' + esc(x.nm) : ''}</div><div class="${fl}">${body}</div></div>`;
   }).join('');
   prevF = F; prevH = H;
   const v = $('#viz'); [...v.children].forEach(c => c.id !== 'svg' && c.remove());
   v.insertAdjacentHTML('beforeend', `<div id="frames">${html}</div><div id="heap">${hh}</div>`);
   drawArrows();
   // console
-  $('#cons').innerHTML = events.filter(e => e[0] <= cur).map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('');
+  $('#cons').innerHTML = '<span class="s">▶ Visualization started\n</span>' + events.filter(e => e[0] <= cur).map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('') + (cur === steps.length - 1 && !events.some(e => e[1] === 'e') ? '<span class="s">■ Visualization finished\n</span>' : '');
   $('#cons').scrollTop = 1e9;
 }
 function drawArrows() {
@@ -246,9 +259,9 @@ $('#viz').addEventListener('pointerdown', e => {
 window.addEventListener('resize', () => mode === 'viz' && drawArrows());
 
 function go(i) { cur = Math.max(0, Math.min(steps.length - 1, i)); render(); }
-$('#b1').onclick = () => go(0); $('#b2').onclick = () => go(cur - 1);
+$('#sl').oninput = e => go(+e.target.value); $('#b1').onclick = () => go(0); $('#b2').onclick = () => go(cur - 1);
 $('#b3').onclick = () => go(cur + 1); $('#b4').onclick = () => go(steps.length - 1);
-['oObj', 'oFn', 'oScope'].forEach(id => $('#' + id).onchange = () => mode === 'viz' && (prevF = prevH = null, render()));
+['oObj', 'oF', 'oC', 'oM', 'oGrid', 'oScope'].forEach(id => $('#' + id).onchange = () => mode === 'viz' && (prevF = prevH = null, render()));
 
 function setEdit() {
   if (mode === 'edit') return; mode = 'edit';
@@ -256,21 +269,25 @@ function setEdit() {
   cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); });
   [...$('#viz').children].forEach(c => c.id !== 'svg' && c.remove());
   $('#viz').insertAdjacentHTML('beforeend', '<div id="hint">Click <b>Visualize</b> to run your program step by step.</div>');
-  $('#cons').textContent = '';
+  $('#cons').textContent = ''; $('#opts').style.display = 'none'; $('#ex').style.display = '';
+  $('#svg').querySelectorAll('path').forEach(p => p.remove()); cm.focus();
 }
 function setViz() {
   const lines = $('#stdin').value.split('\n'); if (lines.at(-1) === '') lines.pop();
   const r = JSON.parse(py.globals.get('run_trace')(cm.getValue(), JSON.stringify(lines)));
   steps = r.steps; events = r.events; offs = {}; prevF = prevH = null; cur = 0;
   if (!steps.length) { $('#cons').innerHTML = events.map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('') || 'Nothing to run.'; return; }
-  mode = 'viz'; $('#go').textContent = 'Edit'; $('#go').classList.add('edit'); $('#nav').style.display = 'flex'; render();
+  mode = 'viz'; $('#go').textContent = 'Edit'; $('#go').classList.add('edit'); $('#nav').style.display = 'flex'; $('#opts').style.display = 'flex'; $('#ex').style.display = 'none'; render(); $('#sl').focus();
 }
 const toggle = () => { if (!py) return; mode === 'edit' ? setViz() : setEdit(); };
 $('#go').onclick = toggle;
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); toggle(); }
-  else if (mode === 'viz' && !e.target.closest('#ed,textarea') && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) go(cur + (e.key === 'ArrowRight' ? 1 : -1));
+  else if (mode === 'viz' && e.ctrlKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); e.stopPropagation(); go(e.key === 'ArrowLeft' ? 0 : steps.length - 1); }
+  else if (mode === 'viz' && !e.target.closest('#ed,textarea,input,select') && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) go(cur + (e.key === 'ArrowRight' ? 1 : -1));
 }, true);
+fetch('python-visualizer-examples.json').then(r => r.json()).then(d => { for (const [g, list] of Object.entries(d)) { const og = document.createElement('optgroup'); og.label = g; list.forEach(x => { const op = new Option(x.title, ''); op.ex = x; og.appendChild(op); }); $('#ex').appendChild(og); } }).catch(() => { $('#ex').title = 'python-visualizer-examples.json not found (serve the page over http)'; });
+$('#ex').onchange = e => { const o = e.target.selectedOptions[0]; if (!o.ex) return; cm.setValue(o.ex.code); $('#stdin').value = o.ex.stdin || ''; e.target.selectedIndex = 0; cm.focus(); };
 cm.on('change', setEdit); $('#stdin').addEventListener('input', setEdit);
 
 (async () => {
