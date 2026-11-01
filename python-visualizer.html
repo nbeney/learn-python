@@ -41,20 +41,26 @@ main{flex:1;display:grid;grid-template-columns:minmax(300px,40%) 1fr;gap:10px;pa
 #cons{height:150px;margin:0;padding:8px;overflow:auto;background:#1b1e27;color:#e6e6e6;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap;border-radius:0 0 8px 8px}
 #cons .i{color:#7ee787}#cons .e{color:#ff7b72}
 #hint{color:#889;padding:20px}
-#sl{width:220px}#pos{min-width:110px;text-align:center}#cons .s{color:#8b93a7}
+#sbar{display:none;padding:4px 12px;background:#fff;border-bottom:1px solid #d8dce5}body.viz #sbar{display:block}#sl{width:100%;display:block;margin:0}#sl{accent-color:#2a6fdb}#sl:focus,#sl:focus-visible{outline:none}
+.cl-err{background:#ffd6d6!important}
+.tg input{display:none}.tg span{display:inline-block;padding:4px 10px;border:1px solid #b9c0d0;border-radius:6px;background:#fff;cursor:pointer;font-size:12px}
+.tg input:checked+span{background:#2a6fdb;color:#fff;border-color:#2a6fdb}.grp{display:flex;align-items:center;gap:6px;font-size:12px;color:#667}
+.grp .tg span{border-radius:0;margin-left:-7px}.grp small{margin-right:0}.grp .tg:first-of-type span{border-radius:6px 0 0 6px;margin-left:0}.grp .tg:last-child span{border-radius:0 6px 6px 0}
+#oScope{font-size:12px;padding:4px}#pos{min-width:110px;text-align:center}#cons .s{color:#8b93a7}
 table.g{border-collapse:collapse}.g td,.g th{border:1px solid #ccd;padding:2px 8px;text-align:center}.g th{background:#eef;font-size:10px;color:#889}
 </style></head><body>
 <header>
  <button id="go" disabled>Loading…</button>
  <select id="ex" title="Load an example"><option value="">Examples…</option></select>
- <span id="nav"><button id="b1" title="First step (Ctrl+←)">⏮</button><button id="b2" title="Previous step (←)">◀</button><b id="pos"></b><button id="b3" title="Next step (→)">▶</button><button id="b4" title="Last step (Ctrl+→)">⏭</button><input type="range" id="sl" min="0" value="0" title="Current step"></span>
+ <span id="nav"><button id="b1" title="First step (Ctrl+←)">⏮</button><button id="b2" title="Previous step (←)">◀</button><b id="pos"></b><button id="b3" title="Next step (→)">▶</button><button id="b4" title="Last step (Ctrl+→)">⏭</button></span>
  <div id="opts">
-  <label><input type="checkbox" id="oObj"> Hide objects (show repr)</label>
-  <label><input type="checkbox" id="oF"> Hide functions</label><label><input type="checkbox" id="oC"> Hide classes</label><label><input type="checkbox" id="oM"> Hide modules</label>
-  <label><input type="checkbox" id="oGrid"> Lists of lists as 2D</label>
-  <label>Objects for <select id="oScope"><option value="all">All frames</option><option value="cur">Current frame</option></select></label>
+  <label class="tg" title="Hide the heap: show repr() inside frames"><input type="checkbox" id="oObj"><span>Frames only</span></label>
+  <label class="tg" title="Show lists of lists as 2D tables"><input type="checkbox" id="oGrid"><span>2D Arrays</span></label>
+  <select id="oScope" title="Which objects to show"><option value="all">All frames</option><option value="cur">Current frame only</option></select>
+  <span class="grp"><small>Hide</small><label class="tg"><input type="checkbox" id="oF"><span>Functions</span></label><label class="tg"><input type="checkbox" id="oC"><span>Classes</span></label><label class="tg"><input type="checkbox" id="oM"><span>Modules</span></label></span>
  </div>
 </header>
+<div id="sbar"><input type="range" id="sl" min="0" value="0" title="Current step"></div>
 <main>
  <div class="col">
   <div class="pan" style="flex:1"><h3>Python code (Ctrl-Enter)</h3><div id="ed"></div></div>
@@ -69,6 +75,7 @@ table.g{border-collapse:collapse}.g td,.g th{border:1px solid #ccd;padding:2px 8
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/comment/comment.min.js"></script>
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script src="python-visualizer-examples.js"></script>
 <script>
 const PY = String.raw`
 import sys, json, builtins, types, traceback, linecache
@@ -82,7 +89,7 @@ def short(v):
     if "object at 0x" in r: r = type(v).__name__ + " object"
     return r if len(r) < 60 else r[:57] + "..."
 def run_trace(src, inputs_json):
-    inp = json.loads(inputs_json); steps = []; events = []; seen_exc = {}; ids = {}; keep = []; MAX = 2000
+    inp = json.loads(inputs_json); steps = []; events = []; seen_exc = {}; errln = [None]; ids = {}; keep = []; MAX = 2000
     def sid(o):
         k = id(o)
         if k not in ids: ids[k] = len(ids) + 1; keep.append(o)
@@ -103,7 +110,12 @@ def run_trace(src, inputs_json):
             o["k"] = "Dict"; o["pairs"] = [[enc(a, heap), enc(b, heap)] for a, b in list(v.items())[:40]]
         elif isinstance(v, types.ModuleType): o["k"] = "Module"
         elif isinstance(v, type): o["k"] = "Class"; o["nm"] = v.__name__; o["meths"] = [a for a, b in vars(v).items() if isinstance(b, types.FunctionType)]
-        elif isinstance(v, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)): o["k"] = "Function"
+        elif isinstance(v, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
+            o["k"] = "Function"
+            if isinstance(v, types.FunctionType):
+                c = v.__code__; nm = c.co_varnames[:c.co_argcount]; d = v.__defaults__ or ()
+                o["defs"] = [[a, enc(b, heap)] for a, b in zip(nm[len(nm) - len(d):], d)] + [[a, enc(b, heap)] for a, b in (v.__kwdefaults__ or {}).items()]
+                if not o["defs"]: del o["defs"]
         elif hasattr(v, "__dict__"):
             o["k"] = "Object"; o["attrs"] = [[a, enc(b, heap)] for a, b in list(vars(v).items())[:40]]
     def snap(frame, nxt, has_ret=False, ret=None):
@@ -148,12 +160,15 @@ def run_trace(src, inputs_json):
         events.append([len(steps) - 1, "e", "Stopped: more than %d steps (infinite loop?)\n" % MAX])
     except BaseException as e:
         if isinstance(e, SyntaxError) or e.__traceback__ is None or not steps:
-            ln = getattr(e, "lineno", None); msg = ("Line %s: " % ln if ln else "") + "".join(traceback.format_exception_only(type(e), e))
-        else: msg = "".join(traceback.format_exception(type(e), e, e.__traceback__.tb_next))
+            ln = getattr(e, "lineno", None); errln[0] = ln; msg = ("Line %s: " % ln if ln else "") + "".join(traceback.format_exception_only(type(e), e))
+        else:
+            for k in range(len(steps) - 1, -1, -1):
+                if steps[k].get("exc"): del steps[k + 1:]; break
+            msg = "".join(traceback.format_exception(type(e), e, e.__traceback__.tb_next))
         events.append([max(len(steps) - 1, 0), "e", msg])
     finally:
         sys.settrace(None); sys.stdout = old_out; builtins.input = old_in
-    return json.dumps({"steps": steps, "events": events})
+    return json.dumps({"steps": steps, "events": events, "errline": errln[0]})
 `;
 const SAMPLE = `name = input("Name? ")
 
@@ -171,7 +186,7 @@ print(pet)
 `;
 const $ = s => document.querySelector(s), esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const cm = CodeMirror($('#ed'), {value: SAMPLE, mode: 'python', lineNumbers: true, indentUnit: 4,
-  gutters: ['CodeMirror-linenumbers', 'marks'], extraKeys: {Tab: c => c.replaceSelection('    '), 'Ctrl-/': 'toggleComment', 'Cmd-/': 'toggleComment'}});
+  gutters: ['CodeMirror-linenumbers', 'marks'], extraKeys: {Tab: 'indentMore', 'Shift-Tab': 'indentLess', 'Ctrl-/': 'toggleComment', 'Cmd-/': 'toggleComment'}});
 const ICON = {int:'#',float:'.5',str:'"',bool:'✓',NoneType:'∅',list:'[ ]',tuple:'( )',dict:'{ }',set:'{·}',function:'ƒ',type:'C',module:'M'};
 let py, mode = 'edit', steps = [], events = [], cur = 0, prevF = null, prevH = null, offs = {};
 const opts = () => ({noObj: $('#oObj').checked, hide: new Set([['oF','Function'],['oC','Class'],['oM','Module']].filter(a => $('#' + a[0]).checked).map(a => a[1])), grid: $('#oGrid').checked, scope: $('#oScope').value});
@@ -182,17 +197,18 @@ function val(v, h, o) {
   if (o.noObj || o.hide.has(x.k)) return `<span class="prim">${esc(x.r)}</span>`;
   return `<span class="ptr" data-t="${v[1]}"></span>`;
 }
-const refs = x => [].concat(x.items || [], (x.pairs || []).flat(), (x.attrs || []).map(a => a[1])).filter(v => v[0] === 'r').map(v => v[1]);
+const refs = x => [].concat(x.items || [], (x.pairs || []).flat(), (x.attrs || []).map(a => a[1]), (x.defs || []).map(a => a[1])).filter(v => v[0] === 'r').map(v => v[1]);
 const icon = (v, h) => { const t = v[0] === 'p' ? v[2] : h[v[1]].t; return `<span class="ic" title="${t}">${ICON[t] || '◆'}</span>`; };
 
 function render() {
   const s = steps[cur], prev = cur > 0 ? steps[cur - 1] : null, o = opts(), h = s.h;
   $('#pos').textContent = `Step ${cur + 1} of ${steps.length}`;
   $('#sl').max = steps.length - 1; $('#sl').value = cur; $('#b1').disabled = $('#b2').disabled = cur === 0; $('#b3').disabled = $('#b4').disabled = cur === steps.length - 1;
-  cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); });
+  cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); cm.removeLineClass(l, 'background', 'cl-err'); });
   const mark = (ln, cls, ic) => { if (!ln) return; cm.addLineClass(ln - 1, 'background', cls); const e = document.createElement('div'); e.className = 'mk'; e.textContent = ic; cm.setGutterMarker(ln - 1, 'marks', e); };
-  if (prev) mark(prev.line, 'cl-last', '✔');
-  mark(s.line, 'cl-next', s.exc && cur === steps.length - 1 ? '✖' : '▶');
+  const ex = s.exc && cur === steps.length - 1;
+  if (prev && !(ex && prev.line === s.line)) mark(prev.line, 'cl-last', '✔');
+  mark(s.line, ex ? 'cl-err' : 'cl-next', ex ? '✖' : '▶');
   if (s.line) cm.scrollIntoView({line: s.line - 1, ch: 0}, 50);
   // frames
   const F = {}, n = s.f.length;
@@ -218,6 +234,7 @@ function render() {
     if (isGrid(x)) { const cols = Math.max(...x.items.map(v => h[v[1]].items.length)); body = `<table class="g"><tr><th></th>${Array.from({length: cols}, (_, c) => `<th>${c}</th>`).join('')}</tr>${x.items.map((v, r) => `<tr><th>${r}</th>${h[v[1]].items.map(w => `<td>${val(w, h, o)}</td>`).join('')}</tr>`).join('')}</table>`; }
     else if (x.items) body = `<div class="cells">${x.items.map((v, i) => cell(v, x.k === 'Set' ? '' : i)).join('') || '<div class="cell">empty</div>'}</div>`;
     else if (x.pairs) body = x.pairs.map(([a, b]) => `<div class="row">${val(a, h, o)}→${val(b, h, o)}</div>`).join('') || '<div class="row">empty</div>';
+    else if (x.defs) body = `<div class="row prim">${esc(x.r)}</div>` + x.defs.map(([k, v]) => `<div class="row"><b>${esc(k)}</b>=${val(v, h, o)}</div>`).join('');
     else if (x.meths) body = x.meths.map(m => `<div class="row">ƒ ${esc(m)}()</div>`).join('') || '<div class="row">no methods</div>';
     else if (x.attrs) body = x.attrs.map(([k, v]) => `<div class="row"><b>${esc(k)}</b>${val(v, h, o)}</div>`).join('') || '<div class="row">no attributes</div>';
     else body = `<div class="row prim">${esc(x.r)}</div>`;
@@ -229,7 +246,7 @@ function render() {
   v.insertAdjacentHTML('beforeend', `<div id="frames">${html}</div><div id="heap">${hh}</div>`);
   drawArrows();
   // console
-  $('#cons').innerHTML = '<span class="s">▶ Visualization started\n</span>' + events.filter(e => e[0] <= cur).map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('') + (cur === steps.length - 1 && !events.some(e => e[1] === 'e') ? '<span class="s">■ Visualization finished\n</span>' : '');
+  $('#cons').innerHTML = events.filter(e => e[0] <= cur).map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('');
   $('#cons').scrollTop = 1e9;
 }
 function drawArrows() {
@@ -264,9 +281,9 @@ $('#b3').onclick = () => go(cur + 1); $('#b4').onclick = () => go(steps.length -
 ['oObj', 'oF', 'oC', 'oM', 'oGrid', 'oScope'].forEach(id => $('#' + id).onchange = () => mode === 'viz' && (prevF = prevH = null, render()));
 
 function setEdit() {
-  if (mode === 'edit') return; mode = 'edit';
+  if (mode === 'edit') return; mode = 'edit'; document.body.classList.remove('viz');
   $('#go').textContent = 'Visualize'; $('#go').classList.remove('edit'); $('#nav').style.display = 'none';
-  cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); });
+  cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); cm.removeLineClass(l, 'background', 'cl-err'); });
   [...$('#viz').children].forEach(c => c.id !== 'svg' && c.remove());
   $('#viz').insertAdjacentHTML('beforeend', '<div id="hint">Click <b>Visualize</b> to run your program step by step.</div>');
   $('#cons').textContent = ''; $('#opts').style.display = 'none'; $('#ex').style.display = '';
@@ -276,19 +293,22 @@ function setViz() {
   const lines = $('#stdin').value.split('\n'); if (lines.at(-1) === '') lines.pop();
   const r = JSON.parse(py.globals.get('run_trace')(cm.getValue(), JSON.stringify(lines)));
   steps = r.steps; events = r.events; offs = {}; prevF = prevH = null; cur = 0;
-  if (!steps.length) { $('#cons').innerHTML = events.map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('') || 'Nothing to run.'; return; }
-  mode = 'viz'; $('#go').textContent = 'Edit'; $('#go').classList.add('edit'); $('#nav').style.display = 'flex'; $('#opts').style.display = 'flex'; $('#ex').style.display = 'none'; render(); $('#sl').focus();
+  if (!steps.length) { if (r.errline) { cm.addLineClass(r.errline - 1, 'background', 'cl-err'); const m = document.createElement('div'); m.className = 'mk'; m.textContent = '✖'; cm.setGutterMarker(r.errline - 1, 'marks', m); }
+    $('#cons').innerHTML = events.map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('') || 'Nothing to run.'; return; }
+  mode = 'viz'; document.body.classList.add('viz'); $('#go').textContent = 'Edit'; $('#go').classList.add('edit'); $('#nav').style.display = 'flex'; $('#opts').style.display = 'flex'; $('#ex').style.display = 'none'; render(); $('#sl').focus();
 }
 const toggle = () => { if (!py) return; mode === 'edit' ? setViz() : setEdit(); };
 $('#go').onclick = toggle;
 document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); toggle(); }
+  if (e.key === 'Escape') { e.preventDefault(); setEdit(); cm.focus(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); toggle(); }
   else if (mode === 'viz' && e.ctrlKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); e.stopPropagation(); go(e.key === 'ArrowLeft' ? 0 : steps.length - 1); }
   else if (mode === 'viz' && !e.target.closest('#ed,textarea,input,select') && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) go(cur + (e.key === 'ArrowRight' ? 1 : -1));
 }, true);
-fetch('python-visualizer-examples.json').then(r => r.json()).then(d => { for (const [g, list] of Object.entries(d)) { const og = document.createElement('optgroup'); og.label = g; list.forEach(x => { const op = new Option(x.title, ''); op.ex = x; og.appendChild(op); }); $('#ex').appendChild(og); } }).catch(() => { $('#ex').title = 'python-visualizer-examples.json not found (serve the page over http)'; });
-$('#ex').onchange = e => { const o = e.target.selectedOptions[0]; if (!o.ex) return; cm.setValue(o.ex.code); $('#stdin').value = o.ex.stdin || ''; e.target.selectedIndex = 0; cm.focus(); };
-cm.on('change', setEdit); $('#stdin').addEventListener('input', setEdit);
+for (const [g, list] of Object.entries(window.PV_EXAMPLES || {})) { const og = document.createElement('optgroup'); og.label = g; list.forEach(x => { const op = new Option(x.title, ''); op.ex = x; og.appendChild(op); }); $('#ex').appendChild(og); }
+$('#ex').onchange = e => { const o = e.target.selectedOptions[0]; if (!o.ex) return; cm.setValue(o.ex.code.replace(/^\n/, '')); $('#stdin').value = (o.ex.stdin || '').replace(/^\n/, ''); e.target.selectedIndex = 0; cm.focus(); };
+const clearMarks = () => cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); ['cl-next', 'cl-last', 'cl-err'].forEach(c => cm.removeLineClass(l, 'background', c)); });
+cm.on('change', () => { clearMarks(); setEdit(); }); $('#stdin').addEventListener('input', setEdit);
 
 (async () => {
   py = await loadPyodide(); py.runPython(PY);
