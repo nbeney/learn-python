@@ -56,6 +56,7 @@ main{flex:1;display:grid;grid-template-columns:minmax(300px,40%) 1fr;gap:10px;pa
 iconify-icon{font-size:16px}#go,#share,#cp,#nav button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
 #menubar{flex:none;height:48px;line-height:48px;padding:0 14px;background:#1f2937;color:#fff;font-weight:800;font-size:22px;letter-spacing:.08em}#menubar span{color:#ff4d4d}
 body.viz #share{display:none}
+.row.free{opacity:.6}.row.free b{font-style:italic}.tag{font:italic 10px system-ui,sans-serif;color:#556;border:1px solid #b9c0d0;border-radius:8px;padding:0 5px}
 #menubar iconify-icon{font-size:26px;vertical-align:-5px;margin-left:6px}
 footer{flex:none;background:#000;color:#bbb;font-size:12px;padding:7px 14px;text-align:center}footer a{color:#8ab4ff;text-decoration:none}footer a:hover{text-decoration:underline}
 .help{vertical-align:-3px;cursor:pointer}
@@ -150,7 +151,7 @@ def run_trace(src, inputs_json):
         fr = []
         for f in reversed(chain):
             d = f.f_globals if f.f_code.co_name == "<module>" else f.f_locals
-            fr.append({"n": f.f_code.co_name, "v": [[k, enc(x, heap)] for k, x in list(d.items()) if not k.startswith("__")]})
+            fr.append({"n": f.f_code.co_name, "fv": list(f.f_code.co_freevars), "v": [[k, enc(x, heap)] for k, x in list(d.items()) if not k.startswith("__")]})
         s = {"line": nxt, "f": fr, "h": heap}
         if has_ret: s["ret"] = enc(ret, heap)
         return s
@@ -248,9 +249,9 @@ function render() {
   let html = '';
   s.f.forEach((f, i) => {
     html = `<div class="fr${i === n - 1 ? ' cur' : ''}"><div class="fh">${f.n === '<module>' ? 'Global frame' : esc(f.n) + '()'}</div>` +
-      f.v.map(([k, v]) => { const key = i + f.n + ':' + k, js = JSON.stringify(v) + (o.noObj && v[0] === 'r' ? JSON.stringify(h[v[1]]) : ''); F[key] = js;
+      f.v.map(([k, v]) => { const fv = (f.fv || []).includes(k), key = i + f.n + ':' + k, js = JSON.stringify(v) + (o.noObj && v[0] === 'r' ? JSON.stringify(h[v[1]]) : ''); F[key] = js;
         const ch = !prevF || prevF[key] !== js ? ' flash' : '';
-        return `<div class="row${prevF ? ch : ''}">${icon(v, h)}<b>${esc(k)}</b>${val(v, h, o, o.scope === 'all' || i === n - 1)}</div>`; }).join('') +
+        return `<div class="row${prevF ? ch : ''}${fv ? ' free' : ''}">${icon(v, h)}<b>${esc(k)}</b>${val(v, h, o, o.scope === 'all' || i === n - 1)}${fv ? '<small class="tag" title="This variable belongs to an enclosing function\'s frame: it is shared, not a copy">enclosing</small>' : ''}</div>`; }).join('') +
       (i === n - 1 && s.ret ? `<div class="row">↩<b>return</b>${val(s.ret, h, o, true)}</div>` : '') + '</div>' + html;
   });
   $('#hint')?.remove();
