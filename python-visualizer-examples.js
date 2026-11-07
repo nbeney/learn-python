@@ -120,4 +120,75 @@ if x > 3
 `
     },
   ],
+  "Concepts": [
+    {
+      title: "All data types",
+      code: `
+# One variable per type, named <common case>_<type>
+import math
+
+name_str = "Ada"
+age_int = 12
+height_float = 1.55
+enabled_bool = True
+nothing_none = None
+signal_complex = 2 + 3j
+items_list = [1, 2, 3]
+point_tuple = (4, 5)
+translation_dict = {"cat": "gato"}
+colors_set = {"red", "green"}
+frozen_frozenset = frozenset([1, 2])
+data_bytes = b"hi"
+buffer_bytearray = bytearray(b"hi")
+span_range = range(3)
+math_module = math
+
+def greet(who):
+    return "Hi " + who
+greet_function = greet
+
+class Person:
+    def __init__(self, name):
+        self.name = name
+Person_class = Person
+alice_object = Person("Alice")
+`
+    },
+    {
+      title: "Variable scopes (LEGB)",
+      code: `
+# LEGB rule: Python looks a name up in this order:
+#   L - Local      : inside the current function
+#   E - Enclosing  : in outer functions (for nested functions)
+#   G - Global     : at module level
+#   B - Built-in   : len, print, range, ...
+# Assigning to a name creates a LOCAL variable, unless it is
+# declared with "global" or "nonlocal".
+
+scope = "global"
+counter = 0
+
+def outer():
+    scope = "enclosing"      # a new local variable of outer()
+    count = 0
+
+    def inner():
+        nonlocal count       # use outer()'s count (Enclosing)
+        global counter       # use the module's counter (Global)
+        scope = "local"      # a new local variable of inner()
+        count += 1
+        counter += 10
+        print(scope, len(scope))   # L: scope, B: print and len
+        return scope
+
+    inner()
+    print(scope)             # outer()'s own scope: "enclosing"
+    return count
+
+outer()
+print(scope)                 # still "global"
+print(counter)               # 10
+`
+    },
+  ],
 };

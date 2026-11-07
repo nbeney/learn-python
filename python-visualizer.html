@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Python Visualizer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <style>
 *{box-sizing:border-box}
 body{margin:0;height:100vh;display:flex;flex-direction:column;font:14px system-ui,sans-serif;background:#f4f6fa;color:#222}
-header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:#fff;border-bottom:1px solid #d8dce5}
+header{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;overflow-x:auto;flex:none;height:48px;padding:0 12px;background:#fff;border-bottom:1px solid #d8dce5}
 button{font:inherit;padding:6px 14px;border:0;border-radius:6px;cursor:pointer;background:#e3e7ef}
 button:disabled{opacity:.4;cursor:default}
 #go{color:#fff;font-weight:700;min-width:110px;background:#1f9d4c}
@@ -41,36 +42,53 @@ main{flex:1;display:grid;grid-template-columns:minmax(300px,40%) 1fr;gap:10px;pa
 #cons{height:150px;margin:0;padding:8px;overflow:auto;background:#1b1e27;color:#e6e6e6;font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap;border-radius:0 0 8px 8px}
 #cons .i{color:#7ee787}#cons .e{color:#ff7b72}
 #hint{color:#889;padding:20px}
-#sbar{display:none;padding:4px 12px;background:#fff;border-bottom:1px solid #d8dce5}body.viz #sbar{display:block}#sl{width:100%;display:block;margin:0}#sl{accent-color:#2a6fdb}#sl:focus,#sl:focus-visible{outline:none}
+#sbar{flex:none;height:28px;display:flex;align-items:center;visibility:hidden;padding:0 12px;background:#fff;border-bottom:1px solid #d8dce5}body.viz #sbar{visibility:visible}#sl{width:100%;display:block;margin:0}#sl{-webkit-appearance:none;appearance:none;height:6px;border-radius:3px;background:#d3d7e0;margin:0}
+#sl::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#2a6fdb;border:0}
+#sl::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#2a6fdb;border:0}
+#sl::-moz-range-track{background:#d3d7e0;height:6px;border-radius:3px}#sl:focus,#sl:focus-visible{outline:none}
 .cl-err{background:#ffd6d6!important}
-.tg input{display:none}.tg span{display:inline-block;padding:4px 10px;border:1px solid #b9c0d0;border-radius:6px;background:#fff;cursor:pointer;font-size:12px}
-.tg input:checked+span{background:#2a6fdb;color:#fff;border-color:#2a6fdb}.grp{display:flex;align-items:center;gap:6px;font-size:12px;color:#667}
-.grp .tg span{border-radius:0;margin-left:-7px}.grp small{margin-right:0}.grp .tg:first-of-type span{border-radius:6px 0 0 6px;margin-left:0}.grp .tg:last-child span{border-radius:0 6px 6px 0}
+.tg{display:inline-flex}.tg input{display:none}
+.tg>span{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border:1px solid #b9c0d0;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;white-space:nowrap}
+.tg .on{display:none}.tg input:checked~.on{display:inline-flex}.tg input:checked~.off{display:none}
+.sw input:checked~span{background:#2a6fdb;color:#fff;border-color:#2a6fdb}
+.grp{display:flex}.grp .tg span{border-radius:0;margin-left:-1px}.grp .tg:first-child span{border-radius:6px 0 0 6px;margin-left:0}.grp .tg:last-child span{border-radius:0 6px 6px 0}
+.lbl{font-size:11px;font-weight:700;color:#667;letter-spacing:.06em}
+iconify-icon{font-size:16px}#go,#share,#cp,#nav button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+#menubar{flex:none;height:48px;line-height:48px;padding:0 14px;background:#1f2937;color:#fff;font-weight:800;font-size:22px;letter-spacing:.08em}#menubar span{color:#ff4d4d}
+body.viz #share{display:none}
+#viz h4{margin:0 0 2px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#667}#heap>h4{flex:0 0 100%}
+dialog div{display:flex;gap:8px}#cp,#cl{display:inline-flex;align-items:center;gap:6px;height:32px}
+#go,#share,#nav button,#ex{height:32px}#ex{padding:0 10px;font:inherit;border:0;border-radius:6px;background:#e3e7ef;cursor:pointer}
+.k-Prim .oh{background:#3b8a5a}
+dialog{border:1px solid #ccd;border-radius:10px;padding:16px;width:min(560px,92vw)}#url{width:100%;padding:6px;margin:8px 0;font:12px ui-monospace,monospace}
 #oScope{font-size:12px;padding:4px}#pos{min-width:110px;text-align:center}#cons .s{color:#8b93a7}
 table.g{border-collapse:collapse}.g td,.g th{border:1px solid #ccd;padding:2px 8px;text-align:center}.g th{background:#eef;font-size:10px;color:#889}
 </style></head><body>
+<div id="menubar"><span>PY</span>WATCH</div>
 <header>
  <button id="go" disabled>Loading…</button>
  <select id="ex" title="Load an example"><option value="">Examples…</option></select>
- <span id="nav"><button id="b1" title="First step (Ctrl+←)">⏮</button><button id="b2" title="Previous step (←)">◀</button><b id="pos"></b><button id="b3" title="Next step (→)">▶</button><button id="b4" title="Last step (Ctrl+→)">⏭</button></span>
- <div id="opts">
-  <label class="tg" title="Hide the heap: show repr() inside frames"><input type="checkbox" id="oObj"><span>Frames only</span></label>
-  <label class="tg" title="Show lists of lists as 2D tables"><input type="checkbox" id="oGrid"><span>2D Arrays</span></label>
-  <select id="oScope" title="Which objects to show"><option value="all">All frames</option><option value="cur">Current frame only</option></select>
-  <span class="grp"><small>Hide</small><label class="tg"><input type="checkbox" id="oF"><span>Functions</span></label><label class="tg"><input type="checkbox" id="oC"><span>Classes</span></label><label class="tg"><input type="checkbox" id="oM"><span>Modules</span></label></span>
+ <button id="share" title="Get a link to this code and inputs"><iconify-icon icon="lucide:share-2"></iconify-icon> Share</button>
+ <span id="nav"><button id="b1" title="First step (Ctrl+←)"><iconify-icon icon="lucide:chevron-first"></iconify-icon></button><button id="b2" title="Previous step (←)"><iconify-icon icon="lucide:chevron-left"></iconify-icon></button><b id="pos"></b><button id="b3" title="Next step (→)"><iconify-icon icon="lucide:chevron-right"></iconify-icon></button><button id="b4" title="Last step (Ctrl+→)"><iconify-icon icon="lucide:chevron-last"></iconify-icon></button></span>
+ <div id="opts"><span class="lbl">SHOW</span>
+  <label class="tg" title="Frames only (objects shown as repr) or frames + heap objects"><input type="checkbox" id="oObj"><span class="off"><iconify-icon icon="lucide:boxes"></iconify-icon>frames + objects</span><span class="on"><iconify-icon icon="lucide:layers"></iconify-icon>frames only</span></label>
+  <label class="tg" title="Lists of lists as plain lists, or as 2D arrays"><input type="checkbox" id="oGrid"><span class="off"><iconify-icon icon="lucide:layout-grid"></iconify-icon>lists of lists</span><span class="on"><iconify-icon icon="lucide:grid-3x2"></iconify-icon>2D array</span></label>
+  <label class="tg" title="Objects of all frames, or of the current frame only"><input type="checkbox" id="oScope"><span class="off"><iconify-icon icon="lucide:menu"></iconify-icon>all frames</span><span class="on"><iconify-icon icon="lucide:minus"></iconify-icon>current frame</span></label>
+  <span class="grp"><label class="tg sw" title="Show functions"><input type="checkbox" id="oF" checked><span><iconify-icon icon="lucide:letter-f"></iconify-icon></span></label><label class="tg sw" title="Show classes"><input type="checkbox" id="oC" checked><span><iconify-icon icon="lucide:letter-c"></iconify-icon></span></label><label class="tg sw" title="Show modules"><input type="checkbox" id="oM" checked><span><iconify-icon icon="lucide:letter-m"></iconify-icon></span></label><label class="tg sw" title="Show primitive values (numbers, strings, ...) as heap objects"><input type="checkbox" id="oP"><span><iconify-icon icon="lucide:letter-p"></iconify-icon></span></label></span>
  </div>
 </header>
 <div id="sbar"><input type="range" id="sl" min="0" value="0" title="Current step"></div>
 <main>
  <div class="col">
   <div class="pan" style="flex:1"><h3>Python code (Ctrl-Enter)</h3><div id="ed"></div></div>
-  <div class="pan"><h3>Input (one line per input() call)</h3><textarea id="stdin">Ada</textarea></div>
+  <div class="pan"><h3>Inputs <iconify-icon title="Type one line for each input() call: the first line answers the first input(), the second line the second one, and so on." style="vertical-align:-3px;cursor:help" icon="lucide:circle-help"></iconify-icon></h3><textarea id="stdin">Ada</textarea></div>
  </div>
  <div class="col">
-  <div class="pan" style="flex:1"><h3>Frames &amp; Objects</h3><div id="viz"><svg id="svg"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#e8590c"/></marker></defs></svg><div id="hint">Click <b>Visualize</b> to run your program step by step.</div></div></div>
-  <div class="pan"><h3>Console</h3><pre id="cons"></pre></div>
+  <div class="pan" style="flex:1"><div id="viz"><svg id="svg"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#e8590c"/></marker></defs></svg><div id="hint">Click <b>Visualize</b> to run your program step by step.</div></div></div>
+  <div class="pan"><h3>Output <iconify-icon icon="lucide:circle-help" title="Everything your program prints with print() appears here, together with the answers you typed for input()." style="vertical-align:-3px;cursor:help"></iconify-icon></h3><pre id="cons"></pre></div>
  </div>
 </main>
+<dialog id="dlg"><b>Share this program</b><p>Anyone opening this link gets your code and inputs. Nothing is uploaded or stored on a server: everything is encoded in the link itself (after the #).</p><input id="url" readonly><div><button id="cp"><iconify-icon icon="lucide:copy"></iconify-icon> Copy</button> <button id="cl">Close</button></div></dialog>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/comment/comment.min.js"></script>
@@ -189,10 +207,16 @@ const cm = CodeMirror($('#ed'), {value: SAMPLE, mode: 'python', lineNumbers: tru
   gutters: ['CodeMirror-linenumbers', 'marks'], extraKeys: {Tab: 'indentMore', 'Shift-Tab': 'indentLess', 'Ctrl-/': 'toggleComment', 'Cmd-/': 'toggleComment'}});
 const ICON = {int:'#',float:'.5',str:'"',bool:'✓',NoneType:'∅',list:'[ ]',tuple:'( )',dict:'{ }',set:'{·}',function:'ƒ',type:'C',module:'M'};
 let py, mode = 'edit', steps = [], events = [], cur = 0, prevF = null, prevH = null, offs = {};
-const opts = () => ({noObj: $('#oObj').checked, hide: new Set([['oF','Function'],['oC','Class'],['oM','Module']].filter(a => $('#' + a[0]).checked).map(a => a[1])), grid: $('#oGrid').checked, scope: $('#oScope').value});
+const goBtn = v => { $('#go').title = v ? 'Stop the visualization and go back to editing (Ctrl+Enter or Esc)' : 'Run the program and step through it (Ctrl+Enter)';
+  $('#go').innerHTML = v ? '<iconify-icon icon="lucide:square"></iconify-icon> Edit' : '<iconify-icon icon="lucide:play"></iconify-icon> Visualize'; };
+const opts = () => ({noObj: $('#oObj').checked, hide: new Set([['oF','Function'],['oC','Class'],['oM','Module']].filter(a => !$('#' + a[0]).checked).map(a => a[1])), grid: $('#oGrid').checked, showP: $('#oP').checked, scope: $('#oScope').checked ? 'cur' : 'all'});
 
-function val(v, h, o) {
-  if (v[0] === 'p') return `<span class="prim t-${v[2]}">${esc(v[1])}</span>`;
+const primIds = new Map(); let usedP = new Map();
+function val(v, h, o, fr) {
+  if (v[0] === 'p') {
+    if (fr && o.showP && !o.noObj) { const k = v[2] + ':' + v[1]; if (!primIds.has(k)) primIds.set(k, 'p' + (primIds.size + 1)); const id = primIds.get(k); usedP.set(id, v); return `<span class="ptr" data-t="${id}"></span>`; }
+    return `<span class="prim t-${v[2]}">${esc(v[1])}</span>`;
+  }
   const x = h[v[1]];
   if (o.noObj || o.hide.has(x.k)) return `<span class="prim">${esc(x.r)}</span>`;
   return `<span class="ptr" data-t="${v[1]}"></span>`;
@@ -201,7 +225,7 @@ const refs = x => [].concat(x.items || [], (x.pairs || []).flat(), (x.attrs || [
 const icon = (v, h) => { const t = v[0] === 'p' ? v[2] : h[v[1]].t; return `<span class="ic" title="${t}">${ICON[t] || '◆'}</span>`; };
 
 function render() {
-  const s = steps[cur], prev = cur > 0 ? steps[cur - 1] : null, o = opts(), h = s.h;
+  usedP = new Map(); const s = steps[cur], prev = cur > 0 ? steps[cur - 1] : null, o = opts(), h = s.h;
   $('#pos').textContent = `Step ${cur + 1} of ${steps.length}`;
   $('#sl').max = steps.length - 1; $('#sl').value = cur; $('#b1').disabled = $('#b2').disabled = cur === 0; $('#b3').disabled = $('#b4').disabled = cur === steps.length - 1;
   cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); cm.removeLineClass(l, 'background', 'cl-err'); });
@@ -217,8 +241,8 @@ function render() {
     html = `<div class="fr${i === n - 1 ? ' cur' : ''}"><div class="fh">${f.n === '<module>' ? 'Global frame' : esc(f.n) + '()'}</div>` +
       f.v.map(([k, v]) => { const key = i + f.n + ':' + k, js = JSON.stringify(v) + (o.noObj && v[0] === 'r' ? JSON.stringify(h[v[1]]) : ''); F[key] = js;
         const ch = !prevF || prevF[key] !== js ? ' flash' : '';
-        return `<div class="row${prevF ? ch : ''}">${icon(v, h)}<b>${esc(k)}</b>${val(v, h, o)}</div>`; }).join('') +
-      (i === n - 1 && s.ret ? `<div class="row">↩<b>return</b>${val(s.ret, h, o)}</div>` : '') + '</div>' + html;
+        return `<div class="row${prevF ? ch : ''}">${icon(v, h)}<b>${esc(k)}</b>${val(v, h, o, o.scope === 'all' || i === n - 1)}</div>`; }).join('') +
+      (i === n - 1 && s.ret ? `<div class="row">↩<b>return</b>${val(s.ret, h, o, true)}</div>` : '') + '</div>' + html;
   });
   $('#hint')?.remove();
   // heap
@@ -241,9 +265,10 @@ function render() {
     const [dx, dy] = offs[id] || [0, 0], fl = prevH && prevH[id] !== js ? ' flash' : '';
     return `<div class="obj k-${x.k}" id="o${id}" style="transform:translate(${dx}px,${dy}px)"><div class="oh" data-id="${id}">#${id} ${x.k}${x.k === 'Object' ? ' · ' + esc(x.t) : x.k === 'Class' ? ' - ' + esc(x.nm) : ''}</div><div class="${fl}">${body}</div></div>`;
   }).join('');
+  const pb = o.noObj ? '' : [...usedP].map(([id, v]) => { const [dx, dy] = offs[id] || [0, 0]; return `<div class="obj k-Prim" id="o${id}" style="transform:translate(${dx}px,${dy}px)"><div class="oh" data-id="${id}">#${id} ${v[2]}</div><div class="row prim t-${v[2]}">${esc(v[1])}</div></div>`; }).join('');
   prevF = F; prevH = H;
   const v = $('#viz'); [...v.children].forEach(c => c.id !== 'svg' && c.remove());
-  v.insertAdjacentHTML('beforeend', `<div id="frames">${html}</div><div id="heap">${hh}</div>`);
+  v.insertAdjacentHTML('beforeend', `<div id="frames"><h4>Frames</h4>${html}</div><div id="heap">${hh || pb ? '<h4>Objects</h4>' : ''}${hh}${pb}</div>`);
   drawArrows();
   // console
   $('#cons').innerHTML = events.filter(e => e[0] <= cur).map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('');
@@ -278,11 +303,11 @@ window.addEventListener('resize', () => mode === 'viz' && drawArrows());
 function go(i) { cur = Math.max(0, Math.min(steps.length - 1, i)); render(); }
 $('#sl').oninput = e => go(+e.target.value); $('#b1').onclick = () => go(0); $('#b2').onclick = () => go(cur - 1);
 $('#b3').onclick = () => go(cur + 1); $('#b4').onclick = () => go(steps.length - 1);
-['oObj', 'oF', 'oC', 'oM', 'oGrid', 'oScope'].forEach(id => $('#' + id).onchange = () => mode === 'viz' && (prevF = prevH = null, render()));
+['oObj', 'oF', 'oC', 'oM', 'oP', 'oGrid', 'oScope'].forEach(id => $('#' + id).onchange = () => mode === 'viz' && (prevF = prevH = null, render()));
 
 function setEdit() {
   if (mode === 'edit') return; mode = 'edit'; document.body.classList.remove('viz');
-  $('#go').textContent = 'Visualize'; $('#go').classList.remove('edit'); $('#nav').style.display = 'none';
+  goBtn(0); $('#go').classList.remove('edit'); $('#nav').style.display = 'none';
   cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); cm.removeLineClass(l, 'background', 'cl-next'); cm.removeLineClass(l, 'background', 'cl-last'); cm.removeLineClass(l, 'background', 'cl-err'); });
   [...$('#viz').children].forEach(c => c.id !== 'svg' && c.remove());
   $('#viz').insertAdjacentHTML('beforeend', '<div id="hint">Click <b>Visualize</b> to run your program step by step.</div>');
@@ -292,10 +317,10 @@ function setEdit() {
 function setViz() {
   const lines = $('#stdin').value.split('\n'); if (lines.at(-1) === '') lines.pop();
   const r = JSON.parse(py.globals.get('run_trace')(cm.getValue(), JSON.stringify(lines)));
-  steps = r.steps; events = r.events; offs = {}; prevF = prevH = null; cur = 0;
+  steps = r.steps; events = r.events; offs = {}; primIds.clear(); prevF = prevH = null; cur = 0;
   if (!steps.length) { if (r.errline) { cm.addLineClass(r.errline - 1, 'background', 'cl-err'); const m = document.createElement('div'); m.className = 'mk'; m.textContent = '✖'; cm.setGutterMarker(r.errline - 1, 'marks', m); }
     $('#cons').innerHTML = events.map(e => `<span class="${e[1]}">${esc(e[2])}</span>`).join('') || 'Nothing to run.'; return; }
-  mode = 'viz'; document.body.classList.add('viz'); $('#go').textContent = 'Edit'; $('#go').classList.add('edit'); $('#nav').style.display = 'flex'; $('#opts').style.display = 'flex'; $('#ex').style.display = 'none'; render(); $('#sl').focus();
+  mode = 'viz'; document.body.classList.add('viz'); goBtn(1); $('#go').classList.add('edit'); $('#nav').style.display = 'flex'; $('#opts').style.display = 'flex'; $('#ex').style.display = 'none'; render(); $('#sl').focus();
 }
 const toggle = () => { if (!py) return; mode === 'edit' ? setViz() : setEdit(); };
 $('#go').onclick = toggle;
@@ -308,10 +333,24 @@ document.addEventListener('keydown', e => {
 for (const [g, list] of Object.entries(window.PV_EXAMPLES || {})) { const og = document.createElement('optgroup'); og.label = g; list.forEach(x => { const op = new Option(x.title, ''); op.ex = x; og.appendChild(op); }); $('#ex').appendChild(og); }
 $('#ex').onchange = e => { const o = e.target.selectedOptions[0]; if (!o.ex) return; cm.setValue(o.ex.code.replace(/^\n/, '')); $('#stdin').value = (o.ex.stdin || '').replace(/^\n/, ''); e.target.selectedIndex = 0; cm.focus(); };
 const clearMarks = () => cm.eachLine(l => { cm.setGutterMarker(l, 'marks', null); ['cl-next', 'cl-last', 'cl-err'].forEach(c => cm.removeLineClass(l, 'background', c)); });
-cm.on('change', () => { clearMarks(); setEdit(); }); $('#stdin').addEventListener('input', setEdit);
+cm.on('change', () => { clearMarks(); setEdit(); });
+// Share: code + inputs compressed into the URL fragment
+const cpBtn = s => $('#cp').innerHTML = '<iconify-icon icon="lucide:copy"></iconify-icon> ' + s;
+const pipe = async (data, st) => new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(st)).arrayBuffer());
+const toB64 = u => { let s = ''; u.forEach(b => s += String.fromCharCode(b)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const fromB64 = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+$('#share').onclick = async () => {
+  if (typeof CompressionStream === 'undefined') { alert('Sharing needs a newer browser. Please upgrade your browser.'); return; }
+  const u = await pipe(new TextEncoder().encode(JSON.stringify({c: cm.getValue(), i: $('#stdin').value})), new CompressionStream('deflate-raw'));
+  $('#url').value = location.href.split('#')[0] + '#' + toB64(u); cpBtn('Copy'); $('#dlg').showModal(); $('#url').select();
+};
+$('#cp').onclick = async () => { $('#url').select(); try { await navigator.clipboard.writeText($('#url').value); } catch (e) { document.execCommand('copy'); } cpBtn('Copied!'); };
+$('#cl').onclick = () => $('#dlg').close();
+(async () => { const h = location.hash.slice(1); if (!h || typeof DecompressionStream === 'undefined') return;
+  try { const o = JSON.parse(new TextDecoder().decode(await pipe(fromB64(h), new DecompressionStream('deflate-raw')))); cm.setValue(o.c); $('#stdin').value = o.i || ''; } catch (e) {} })(); $('#stdin').addEventListener('input', setEdit);
 
 (async () => {
   py = await loadPyodide(); py.runPython(PY);
-  $('#go').disabled = false; $('#go').textContent = 'Visualize';
+  $('#go').disabled = false; goBtn(0);
 })();
 </script></body></html>
