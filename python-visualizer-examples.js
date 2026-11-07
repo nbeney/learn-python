@@ -174,25 +174,22 @@ scope = "global"
 counter = 0
 
 def outer():
-    scope = "enclosing"      # a new local variable of outer()
+    scope = "enclosing" # a new local variable of outer()
     count = 0
 
     def inner():
-        nonlocal count       # use outer()'s count (Enclosing)
-        global counter       # use the module's counter (Global)
-        scope = "local"      # a new local variable of inner()
+        nonlocal count # use outer()'s count (Enclosing)
+        global counter # use the module's counter (Global)
+        scope = "local" # a new local variable of inner()
         count += 1
         counter += 10
-        print(scope, len(scope))   # L: scope, B: print and len
-        return scope
+        print(f"{scope = }, {counter = }, {count = }") # "local", 10, 1
 
     inner()
-    print(scope)             # outer()'s own scope: "enclosing"
-    return count
+    print(f"{scope = }, {counter = }, {count = }") # "enclosing", 10, 1
 
 outer()
-print(scope)                 # still "global"
-print(counter)               # 10
+print(f"{scope = }, {counter = }") # "global", 10
 `
     },
   ],
