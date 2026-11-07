@@ -125,7 +125,6 @@ if x > 3
       title: "All data types",
       code: `
 # One variable per type, named <common case>_<type>
-import math
 
 name_str = "Ada"
 age_int = 12
@@ -133,25 +132,31 @@ height_float = 1.55
 enabled_bool = True
 nothing_none = None
 signal_complex = 2 + 3j
-items_list = [1, 2, 3]
+basket_list = ["milk", "bread", "jam"]
 point_tuple = (4, 5)
-translation_dict = {"cat": "gato"}
-colors_set = {"red", "green"}
-frozen_frozenset = frozenset([1, 2])
+translation_dict = {"red": "rouge", "green": "vert", "blue": "bleu"}
+fruit_set = {"apple", "banana"}
+numbers_frozenset = frozenset([1, 2, 3])
 data_bytes = b"hi"
 buffer_bytearray = bytearray(b"hi")
 span_range = range(3)
-math_module = math
 
-def greet(who):
-    return "Hi " + who
-greet_function = greet
+# Modules are objects
+import math as math_module
 
-class Person:
-    def __init__(self, name):
+# Functions are objects
+def greet_function():
+    pass
+
+# Classes are objects too
+class Person_class:
+    def __init__(self, name, age):
         self.name = name
-Person_class = Person
-alice_object = Person("Alice")
+        self.age = age
+    def greet(self):
+        print(f"Hi! My name is {self.name} and I am {self.age}.")
+
+alice_object = Person_class("Alice", 20)
 `
     },
     {
