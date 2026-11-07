@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<!--
+PROMPT USED TO GENERATE THIS PAGE:
+
+I want to compare various free icons and emojis libraries.
+Please create a single web page showing them side by side.
+Please use iconify.
+Please include a button to change the theme (light/dark/system).
+Please include this prompt as an HTML comment.
+Here are the icons/emojis I want to see:
+1) books or shelf or library
+2) terminal or scratch pad
+3) editor
+4) file manager or folders
+5) conversion or double arrow
+6) visualizer or eye or bonicular or microscope
+7) run or start
+8) stop or finish or terminate
+9) upload single file
+10) download single file
+11) import zip archive
+12) export zip archive
+13) delete or trash
+14) clear or reset
+15) open file
+16) copy or duplicate
+17) edit
+18) rename
+
+FOLLOW-UP REQUEST: Please also add:
+19) Go to first
+20) Previous
+21) Next
+22) Go to last
+
+FOLLOW-UP REQUEST: Please add a column for Phosphor duo tome (just after Phosphor)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Icon &amp; Emoji Library Comparison (Iconify)</title>
+<script src="https://cdn.jsdelivr.net/npm/iconify-icon@2.1.0/dist/iconify-icon.min.js"></script>
+<style>
+:root{--bg:#fff;--fg:#1c1e21;--muted:#6b7280;--line:#e3e5e8;--head:#f4f5f7;--accent:#4f46e5;color-scheme:light}
+:root[data-theme="dark"]{--bg:#14161a;--fg:#e8eaed;--muted:#9aa0a6;--line:#2c3036;--head:#1d2025;--accent:#818cf8;color-scheme:dark}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,Segoe UI,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;padding:1rem 1.25rem;border-bottom:1px solid var(--line)}
+h1{font-size:1.15rem;margin:0}
+p.sub{margin:.2rem 0 0;color:var(--muted);font-size:.85rem}
+button{background:var(--head);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:.5rem .8rem;font:inherit;cursor:pointer;display:inline-flex;gap:.4rem;align-items:center}
+button:hover{border-color:var(--accent)}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:900px}
+th,td{border-bottom:1px solid var(--line);padding:.55rem .6rem;text-align:center}
+thead th{position:sticky;top:0;background:var(--head);font-size:.8rem;z-index:2}
+thead th small{display:block;color:var(--muted);font-weight:400}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--bg);z-index:1;min-width:210px}
+thead th:first-child{background:var(--head);z-index:3}
+td:first-child{font-size:.88rem}
+td:first-child span{color:var(--muted);margin-right:.4rem}
+iconify-icon{font-size:30px;vertical-align:middle}
+tr:hover td{background:var(--head)}
+tr:hover td:first-child{background:var(--head)}
+td{cursor:default}
+footer{padding:1rem 1.25rem;color:var(--muted);font-size:.8rem}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Icon &amp; Emoji Library Comparison</h1>
+    <p class="sub">Powered by Iconify. Hover an icon to see its name. Blank cell = name not in that set.</p>
+  </div>
+  <button id="themeBtn" type="button" aria-label="Change theme"></button>
+</header>
+<div class="wrap"><table id="tbl"></table></div>
+<footer>Icon sets: Lucide, Tabler, Phosphor, Phosphor Duotone, Material Symbols, Bootstrap Icons. Emoji sets: Noto, Twemoji, Fluent Emoji Flat.</footer>
+<script>
+const libs=[
+ {p:"lucide",n:"Lucide",t:"icons",i:0},
+ {p:"tabler",n:"Tabler",t:"icons",i:1},
+ {p:"ph",n:"Phosphor",t:"icons",i:2},
+ {p:"ph",n:"Phosphor Duotone",t:"icons",i:2,s:"-duotone"},
+ {p:"material-symbols",n:"Material Symbols",t:"icons",i:3},
+ {p:"bi",n:"Bootstrap Icons",t:"icons",i:4},
+ {p:"noto",n:"Noto Emoji",t:"emoji"},
+ {p:"twemoji",n:"Twemoji",t:"emoji"},
+ {p:"fluent-emoji-flat",n:"Fluent Emoji Flat",t:"emoji"}
+];
+const emo=["books","laptop","memo","file-folder","left-right-arrow","microscope","play-button","stop-button","up-arrow","down-arrow","inbox-tray","outbox-tray","wastebasket","broom","open-file-folder","clipboard","pencil","name-badge","last-track-button","left-arrow","right-arrow","next-track-button"];
+const rows=[
+ ["Books / library",["library","books","books","library-books","journals"]],
+ ["Terminal / scratch pad",["terminal","terminal-2","terminal-window","terminal","terminal"]],
+ ["Editor",["code","code","code","code","code-slash"]],
+ ["File manager / folders",["folder-tree","folders","folders","folder-copy","folder2-open"]],
+ ["Conversion / double arrow",["arrow-left-right","arrows-left-right","arrows-left-right","swap-horiz","arrow-left-right"]],
+ ["Visualizer / eye",["eye","eye","eye","visibility","eye"]],
+ ["Run / start",["play","player-play","play","play-arrow","play-fill"]],
+ ["Stop / terminate",["square","player-stop","stop","stop","stop-fill"]],
+ ["Upload single file",["upload","upload","upload-simple","upload-file","upload"]],
+ ["Download single file",["download","download","download-simple","file-download","download"]],
+ ["Import zip archive",["archive-restore","package-import","tray-arrow-down","unarchive","box-arrow-in-down"]],
+ ["Export zip archive",["archive","package-export","tray-arrow-up","archive","box-arrow-up"]],
+ ["Delete / trash",["trash-2","trash","trash","delete","trash"]],
+ ["Clear / reset",["eraser","eraser","eraser","ink-eraser","eraser"]],
+ ["Open file",["folder-open","folder-open","folder-open","file-open","file-earmark-text"]],
+ ["Copy / duplicate",["copy","copy","copy","content-copy","copy"]],
+ ["Edit",["pencil","pencil","pencil-simple","edit","pencil"]],
+ ["Rename",["text-cursor-input","cursor-text","textbox","drive-file-rename-outline","input-cursor-text"]],
+ ["Go to first",["chevrons-left","chevrons-left","caret-double-left","first-page","chevron-bar-left"]],
+ ["Previous",["chevron-left","chevron-left","caret-left","chevron-left","chevron-left"]],
+ ["Next",["chevron-right","chevron-right","caret-right","chevron-right","chevron-right"]],
+ ["Go to last",["chevrons-right","chevrons-right","caret-double-right","last-page","chevron-bar-right"]]
+];
+const tbl=document.getElementById("tbl");
+let h="<thead><tr><th>Concept</th>"+libs.map(l=>`<th>${l.n}<small>${l.t}</small></th>`).join("")+"</tr></thead><tbody>";
+rows.forEach((r,i)=>{
+  h+=`<tr><td><span>${i+1}.</span>${r[0]}</td>`;
+  libs.forEach((l,j)=>{
+    const name=l.t==="emoji"?emo[i]:r[1][l.i]+(l.s||"");
+    h+=`<td><iconify-icon icon="${l.p}:${name}" title="${l.p}:${name}"></iconify-icon></td>`;
+  });
+  h+="</tr>";
+});
+tbl.innerHTML=h+"</tbody>";
+
+const modes=["system","light","dark"],labels={system:"💻 System",light:"☀️ Light",dark:"🌙 Dark"};
+const mq=matchMedia("(prefers-color-scheme: dark)");
+let mode="system";
+try{mode=localStorage.getItem("theme")||"system"}catch(e){}
+function apply(){
+  const dark=mode==="dark"||(mode==="system"&&mq.matches);
+  document.documentElement.dataset.theme=dark?"dark":"light";
+  document.getElementById("themeBtn").textContent="Theme: "+labels[mode];
+}
+document.getElementById("themeBtn").onclick=()=>{
+  mode=modes[(modes.indexOf(mode)+1)%3];
+  try{localStorage.setItem("theme",mode)}catch(e){}
+  apply();
+};
+mq.addEventListener("change",apply);
+apply();
+</script>
+</body>
+</html>
