@@ -382,4 +382,41 @@ def on_mouse_down(pos):
 pgzrun.go()
 `,
   },
+  {
+    name: "🎮 Pygame Zero: Alien walk",
+    code: `# The Pygame Zero "intro" example: an alien walks across the screen.
+# Click it to make it say "Eep!" and look hurt for a moment.
+# Images (alien, alien_hurt) and the sound (eep) ship with the editor.
+import pgzrun
+
+alien = Actor('alien')          # loads images/alien.png
+alien.topright = 0, 10
+
+WIDTH = 500
+HEIGHT = alien.height + 20      # ignored for sizing here, but readable
+
+def draw():
+    screen.clear()
+    alien.draw()
+
+def update():
+    alien.left += 2
+    if alien.left > WIDTH:
+        alien.right = 0
+
+def on_mouse_down(pos):
+    if alien.collidepoint(pos):
+        set_alien_hurt()
+
+def set_alien_hurt():
+    alien.image = 'alien_hurt'
+    sounds.eep.play()
+    clock.schedule_unique(set_alien_normal, 1.0)
+
+def set_alien_normal():
+    alien.image = 'alien'
+
+pgzrun.go()
+`,
+  },
 ];

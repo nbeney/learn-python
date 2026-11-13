@@ -1836,6 +1836,188 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     gctx.fillRect(x, y, w, h);
   };
 
+  // ----- Images (Phase 3): load + cache + blit + actor draw -----
+  // Decoded images are cached by name as ImageBitmaps so per-frame draws are
+  // synchronous. Names are validated on the Python side; here we resolve the
+  // file extension by probing the staged FS and decode via createImageBitmap.
+  const pgzImageCache = new Map();        // name -> { bitmap, width, height }
+  const PGZ_IMAGE_EXTS = ["png", "jpg", "jpeg", "gif"];
+
+  // Read a staged image file's bytes, trying the known extensions in order.
+  function pgzReadImageBytes(name) {
+    for (const ext of PGZ_IMAGE_EXTS) {
+      const path = "images/" + name + "." + ext;
+      try {
+        return { bytes: pyodide.FS.readFile(path), ext: ext };
+      } catch (_) { /* try next extension */ }
+    }
+    return null;
+  }
+
+  // Decode one image by name into the cache. Async (createImageBitmap). Throws
+  // if the file is missing (so the Python loader can surface a clear error).
+  async function pgzDecodeImage(name) {
+    if (pgzImageCache.has(name)) return;
+    const found = pgzReadImageBytes(name);
+    if (!found) throw new Error("No image found for '" + name + "' in images/");
+    const mime = found.ext === "png" ? "image/png"
+      : found.ext === "gif" ? "image/gif" : "image/jpeg";
+    const blob = new Blob([found.bytes], { type: mime });
+    const bitmap = await createImageBitmap(blob);
+    pgzImageCache.set(name, { bitmap: bitmap, width: bitmap.width, height: bitmap.height });
+  }
+
+  // Eagerly decode every staged images/* file so blit/Actor.draw are fully
+  // synchronous per frame. Returns a Promise the Python go() awaits before the
+  // loop starts. Called from jsPgzPreloadImages.
+  globalThis.jsPgzPreloadImages = async () => {
+    let names;
+    try {
+      names = pyodide.FS.readdir("images").filter((n) => n !== "." && n !== "..");
+    } catch (_) { return; }
+    for (const file of names) {
+      const dot = file.lastIndexOf(".");
+      if (dot <= 0) continue;
+      const base = file.slice(0, dot);
+      const ext = file.slice(dot + 1).toLowerCase();
+      if (!PGZ_IMAGE_EXTS.includes(ext)) continue;
+      if (pgzImageCache.has(base)) continue;
+      try { await pgzDecodeImage(base); } catch (_) { /* skip undecodable */ }
+    }
+  };
+
+  // Synchronous size query for a cached (preloaded) image. Decodes on demand
+  // via a blocking-ish fallback is NOT possible (decode is async), so the
+  // Python side relies on preload. Returns [w, h] or null if not cached.
+  globalThis.jsPgzImageSize = (name) => {
+    const rec = pgzImageCache.get(String(name));
+    return rec ? [rec.width, rec.height] : null;
+  };
+
+  // Ensure an image is available, decoding it if the preload missed it. Async;
+  // the Python loader awaits this when an image is first referenced.
+  globalThis.jsPgzEnsureImage = async (name) => {
+    await pgzDecodeImage(String(name));
+    const rec = pgzImageCache.get(String(name));
+    return rec ? [rec.width, rec.height] : null;
+  };
+
+  // Draw a cached image with its top-left at (x, y).
+  globalThis.jsPgzBlit = (name, x, y) => {
+    const rec = pgzImageCache.get(String(name));
+    if (!rec) throw new Error("image '" + name + "' is not loaded");
+    gctx.drawImage(rec.bitmap, x, y);
+  };
+
+  // Draw an Actor's image: translate to the anchor point on the canvas, rotate
+  // anticlockwise by `angle` degrees, apply opacity, and draw the image so the
+  // anchor lands at (ax, ay) within the image. (ax, ay) are pixel offsets of
+  // the anchor from the image top-left.
+  globalThis.jsPgzDrawActor = (name, anchorPx, anchorPy, angle, opacity, ax, ay) => {
+    const rec = pgzImageCache.get(String(name));
+    if (!rec) throw new Error("image '" + name + "' is not loaded");
+    gctx.save();
+    if (opacity != null) gctx.globalAlpha = Math.max(0, Math.min(1, opacity));
+    gctx.translate(anchorPx, anchorPy);
+    if (angle) gctx.rotate(-angle * Math.PI / 180);   // anticlockwise
+    gctx.drawImage(rec.bitmap, -ax, -ay);
+    gctx.restore();
+  };
+
+  // Clear the image cache (called on reset).
+  globalThis.jsPgzClearImageCache = () => { pgzImageCache.clear(); };
+
+  // ----- Sounds (Web Audio): minimal play support for the Alien example -----
+  // Decoded sounds are cached by name as AudioBuffers; play() spawns a
+  // one-shot source so overlapping plays work. Live sources are tracked so
+  // jsPgzStopAllAudio() can silence everything on Stop/reset.
+  let pgzAudioCtx = null;
+  const pgzSoundCache = new Map();        // name -> AudioBuffer
+  const pgzLiveSources = new Set();       // live AudioBufferSourceNodes
+  const PGZ_SOUND_EXTS = ["wav", "ogg"];
+
+  function pgzGetAudioCtx() {
+    if (!pgzAudioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) pgzAudioCtx = new AC();
+    }
+    return pgzAudioCtx;
+  }
+
+  function pgzReadSoundBytes(name) {
+    for (const ext of PGZ_SOUND_EXTS) {
+      try { return pyodide.FS.readFile("sounds/" + name + "." + ext); }
+      catch (_) { /* try next */ }
+    }
+    return null;
+  }
+
+  async function pgzDecodeSound(name) {
+    if (pgzSoundCache.has(name)) return;
+    const ctx = pgzGetAudioCtx();
+    if (!ctx) return;
+    const bytes = pgzReadSoundBytes(name);
+    if (!bytes) throw new Error("No sound found for '" + name + "' in sounds/");
+    // decodeAudioData needs its own ArrayBuffer copy.
+    const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const audioBuf = await ctx.decodeAudioData(buf);
+    pgzSoundCache.set(name, audioBuf);
+  }
+
+  // Eagerly decode every staged sounds/* file so play() is synchronous.
+  globalThis.jsPgzPreloadSounds = async () => {
+    let names;
+    try {
+      names = pyodide.FS.readdir("sounds").filter((n) => n !== "." && n !== "..");
+    } catch (_) { return; }
+    for (const file of names) {
+      const dot = file.lastIndexOf(".");
+      if (dot <= 0) continue;
+      const base = file.slice(0, dot);
+      const ext = file.slice(dot + 1).toLowerCase();
+      if (!PGZ_SOUND_EXTS.includes(ext)) continue;
+      if (pgzSoundCache.has(base)) continue;
+      try { await pgzDecodeSound(base); } catch (_) { /* skip */ }
+    }
+  };
+
+  globalThis.jsPgzSoundPlay = (name, loops) => {
+    const ctx = pgzGetAudioCtx();
+    const buf = pgzSoundCache.get(String(name));
+    if (!ctx || !buf) return;
+    if (ctx.state === "suspended") { try { ctx.resume(); } catch (_) {} }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    if (loops && loops > 0) { src.loop = true; }
+    src.connect(ctx.destination);
+    pgzLiveSources.add(src);
+    src.onended = () => { pgzLiveSources.delete(src); };
+    src.start();
+  };
+
+  globalThis.jsPgzSoundStop = (name) => {
+    // Stop all live sources (we do not track which buffer each came from
+    // beyond the live set; this keeps the shim simple for beginners).
+    for (const src of Array.from(pgzLiveSources)) {
+      try { src.stop(); } catch (_) {}
+      pgzLiveSources.delete(src);
+    }
+  };
+
+  globalThis.jsPgzSoundLength = (name) => {
+    const buf = pgzSoundCache.get(String(name));
+    return buf ? buf.duration : 0;
+  };
+
+  globalThis.jsPgzStopAllAudio = () => {
+    for (const src of Array.from(pgzLiveSources)) {
+      try { src.stop(); } catch (_) {}
+    }
+    pgzLiveSources.clear();
+  };
+
+  globalThis.jsPgzClearSoundCache = () => { pgzSoundCache.clear(); };
+
   // ----- ptext (screen.draw.text / textbox) -----
   // opts is a plain JS object built on the Python side. Fonts use the system
   // default (fontname ignored in v1). Supports colour/background, positioning
@@ -2628,7 +2810,11 @@ from js import (jsPgzScreenSize, jsPgzShow, jsPgzReset,
                 jsPgzDrawLine, jsPgzDrawCircle, jsPgzDrawFilledCircle,
                 jsPgzDrawRect, jsPgzDrawFilledRect,
                 jsPgzDrawText, jsPgzDrawTextbox,
-                jsPgzIsKeyDown)
+                jsPgzIsKeyDown,
+                jsPgzImageSize, jsPgzBlit, jsPgzDrawActor,
+                jsPgzClearImageCache,
+                jsPgzSoundPlay, jsPgzSoundStop, jsPgzSoundLength,
+                jsPgzClearSoundCache)
 try:
     from pyodide.ffi import to_js, create_proxy
 except Exception:  # pragma: no cover - non-Pyodide fallback
@@ -2806,6 +2992,69 @@ class ZRect(_BaseRect):
     @staticmethod
     def _num(v): return float(v)
 
+# ----- Asset-name validation (same rule as tests/pgzero/pgzname.py) -----
+import re as _re
+_PGZ_NAME_RE = _re.compile(r"^[a-z][a-z0-9_]*$")
+
+def _pgz_valid_name(name):
+    # pgzero asset names: lowercase letters, digits and underscores, starting
+    # with a letter. Validate BEFORE touching the filesystem.
+    return bool(_PGZ_NAME_RE.match(name))
+
+def _pgz_check_name(kind, name):
+    if not isinstance(name, str) or not _pgz_valid_name(name):
+        raise KeyError(
+            "%s name must be lowercase letters, numbers and underscores, "
+            "starting with a letter (got %r)" % (kind, name))
+
+# ----- images loader -----
+# Attribute / subscript access returns the validated name; decoding is eager
+# (done by jsPgzPreloadImages before the loop), so blit/Actor.draw are sync.
+class _Images:
+    def _load(self, name):
+        _pgz_check_name("image", name)
+        # Images are eagerly decoded before the program runs, so the size is
+        # available synchronously here.
+        size = jsPgzImageSize(name)
+        if size is None:
+            raise KeyError(
+                "no image found for %r (expected images/%s.png|jpg|gif)"
+                % (name, name))
+        return name, (int(size[0]), int(size[1]))
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self._load(name)[0]
+    def __getitem__(self, name):
+        return self._load(name)[0]
+images = _Images()
+
+# ----- sounds loader + Sound -----
+# sounds.<name> returns a Sound whose play()/stop()/get_length() drive Web
+# Audio across the bridge. Sounds are eagerly decoded before the program runs.
+class _Sound:
+    def __init__(self, name):
+        self._name = name
+    def play(self, loops=0):
+        jsPgzSoundPlay(self._name, int(loops))
+    def stop(self):
+        jsPgzSoundStop(self._name)
+    def get_length(self):
+        return float(jsPgzSoundLength(self._name))
+    def __repr__(self):
+        return "<Sound %r>" % (self._name,)
+
+class _Sounds:
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        _pgz_check_name("sound", name)
+        return _Sound(name)
+    def __getitem__(self, name):
+        _pgz_check_name("sound", name)
+        return _Sound(name)
+sounds = _Sounds()
+
 # ----- screen -----
 class _Draw:
     def line(self, start, end, color, width=1):
@@ -2876,11 +3125,163 @@ class _Screen:
         jsPgzFill(_pgz_color(color), _pgz_color(gcolor))
     def bounds(self):
         return Rect(0, 0, self.width, self.height)
-    # blit arrives with the images phase; defined later to raise helpfully.
     def blit(self, image, pos):
-        raise NotImplementedError("images are not available yet")
+        # image may be an image name (str) or an Actor; pos is the top-left.
+        if isinstance(image, Actor):
+            image.draw()
+            return
+        name = image if isinstance(image, str) else str(image)
+        _pgz_check_name("image", name)
+        jsPgzBlit(name, pos[0], pos[1])
 
 screen = _Screen()
+
+# ----- Actor -----
+# A sprite backed by an image, with a geometry Rect sized from the image.
+# Position/anchor attributes delegate to the Rect; angle rotates anticlockwise
+# around the anchor; opacity is 0..1. distance_to/angle_to are pure maths.
+_PGZ_ANCHOR_FRACTIONS = {
+    "topleft": (0.0, 0.0), "midtop": (0.5, 0.0), "topright": (1.0, 0.0),
+    "midleft": (0.0, 0.5), "center": (0.5, 0.5), "centre": (0.5, 0.5),
+    "midright": (1.0, 0.5), "bottomleft": (0.0, 1.0), "midbottom": (0.5, 1.0),
+    "bottomright": (1.0, 1.0),
+}
+
+# Rect anchor attributes an Actor forwards to its backing rect.
+_PGZ_RECT_ATTRS = (
+    "x", "y", "left", "right", "top", "bottom", "width", "height",
+    "centerx", "centery", "size", "topleft", "topright", "bottomleft",
+    "bottomright", "center", "midtop", "midbottom", "midleft", "midright",
+)
+
+class Actor:
+    def __init__(self, image, pos=None, anchor=None, **kwargs):
+        # Use object.__setattr__ during init so __setattr__ delegation to the
+        # not-yet-created rect does not fire.
+        _pgz_check_name("image", image)
+        object.__setattr__(self, "_name", image)
+        _n, (w, h) = images._load(image)
+        object.__setattr__(self, "_rect", ZRect(0, 0, w, h))
+        object.__setattr__(self, "_anchor", anchor if anchor is not None else "center")
+        object.__setattr__(self, "angle", 0.0)
+        object.__setattr__(self, "opacity", 1.0)
+        # Initial position: explicit pos, else an anchor-point keyword, else 0,0.
+        if pos is not None:
+            self.pos = pos
+        else:
+            placed = False
+            for k in ("topleft", "topright", "bottomleft", "bottomright",
+                      "midtop", "midbottom", "midleft", "midright",
+                      "center", "pos"):
+                if k in kwargs:
+                    setattr(self, k, kwargs[k])
+                    placed = True
+                    break
+            if not placed:
+                self.pos = (0, 0)
+
+    # --- image ---
+    @property
+    def image(self):
+        return self._name
+    @image.setter
+    def image(self, value):
+        _pgz_check_name("image", value)
+        _n, (w, h) = images._load(value)
+        # Keep the anchor point fixed while resizing the backing rect.
+        ax, ay = self._anchor_point()
+        object.__setattr__(self, "_name", value)
+        self._rect.size = (w, h)
+        self._set_anchor_point(ax, ay)
+
+    # --- anchor ---
+    @property
+    def anchor(self):
+        return self._anchor
+    @anchor.setter
+    def anchor(self, value):
+        # Preserve the on-screen anchor point when the anchor changes.
+        ax, ay = self._anchor_point()
+        object.__setattr__(self, "_anchor", value)
+        self._set_anchor_point(ax, ay)
+
+    def _anchor_fraction(self):
+        a = self._anchor
+        if isinstance(a, str):
+            fx, fy = _PGZ_ANCHOR_FRACTIONS.get(a.lower(), (0.5, 0.5))
+            return fx, fy
+        # A pixel (ax, ay) anchor -> fraction of the image size.
+        w = self._rect.width or 1
+        h = self._rect.height or 1
+        return a[0] / w, a[1] / h
+
+    def _anchor_point(self):
+        fx, fy = self._anchor_fraction()
+        return (self._rect.left + fx * self._rect.width,
+                self._rect.top + fy * self._rect.height)
+
+    def _set_anchor_point(self, px, py):
+        fx, fy = self._anchor_fraction()
+        self._rect.left = px - fx * self._rect.width
+        self._rect.top = py - fy * self._rect.height
+
+    # --- pos (the anchor point) ---
+    @property
+    def pos(self):
+        return self._anchor_point()
+    @pos.setter
+    def pos(self, value):
+        self._set_anchor_point(value[0], value[1])
+
+    # --- Rect attribute delegation ---
+    def __getattr__(self, name):
+        # Only called when normal lookup fails (so real attributes win).
+        if name in _PGZ_RECT_ATTRS:
+            return getattr(self._rect, name)
+        raise AttributeError(name)
+    def __setattr__(self, name, value):
+        if name in _PGZ_RECT_ATTRS:
+            setattr(self._rect, name, value)
+        else:
+            object.__setattr__(self, name, value)
+
+    # --- maths ---
+    def distance_to(self, target):
+        tx, ty = _pgz_target_pos(target)
+        px, py = self.pos
+        return math.hypot(tx - px, ty - py)
+    def angle_to(self, target):
+        # Anticlockwise degrees from this actor to the target (y grows down,
+        # so negate dy to match pgzero's mathematical convention).
+        tx, ty = _pgz_target_pos(target)
+        px, py = self.pos
+        return math.degrees(math.atan2(py - ty, tx - px))
+
+    # --- collisions (delegate to the rect) ---
+    def colliderect(self, other):
+        o = other._rect if isinstance(other, Actor) else other
+        return self._rect.colliderect(o)
+    def collidepoint(self, *p):
+        return self._rect.collidepoint(*p)
+
+    def draw(self):
+        ax, ay = self._anchor_point()
+        fx, fy = self._anchor_fraction()
+        # Anchor offset within the image (pixels from the image top-left).
+        ox = fx * self._rect.width
+        oy = fy * self._rect.height
+        jsPgzDrawActor(self._name, ax, ay, self.angle, self.opacity, ox, oy)
+
+    def __repr__(self):
+        return "<Actor %r pos=%r>" % (self._name, self.pos)
+
+def _pgz_target_pos(target):
+    # Accept an Actor, a Rect, or an (x, y) pair.
+    if isinstance(target, Actor):
+        return target.pos
+    if hasattr(target, "center"):
+        return target.center
+    return (target[0], target[1])
 
 # ----- clock -----
 class _Clock:
@@ -3034,6 +3435,7 @@ def _install(g):
     names = {
         "screen": screen, "clock": clock, "Rect": Rect, "ZRect": ZRect,
         "keyboard": keyboard, "keys": keys, "mouse": mouse, "keymods": keymods,
+        "Actor": Actor, "images": images, "sounds": sounds,
     }
     for k, v in names.items():
         g.setdefault(k, v)
@@ -3051,6 +3453,14 @@ def _reset():
     _loop_done = None
     try:
         keyboard._reset()
+    except Exception:
+        pass
+    try:
+        jsPgzClearImageCache()
+    except Exception:
+        pass
+    try:
+        jsPgzClearSoundCache()
     except Exception:
         pass
     jsPgzReset()
@@ -3123,6 +3533,7 @@ _builtins_mod = _make_module(
     "pgzero.builtins",
     screen=screen, clock=clock, Rect=Rect, ZRect=ZRect,
     keyboard=keyboard, keys=keys, mouse=mouse, keymods=keymods,
+    Actor=Actor, images=images, sounds=sounds,
 )
 _builtins_mod._reset = _reset
 _builtins_mod._install = _install
@@ -3134,6 +3545,8 @@ sys.modules["pgzero.builtins"] = _builtins_mod
 sys.modules["pgzero.rect"] = _make_module("pgzero.rect", Rect=Rect, ZRect=ZRect)
 sys.modules["pgzero.clock"] = _make_module("pgzero.clock", clock=clock, Clock=_Clock)
 sys.modules["pgzero.screen"] = _make_module("pgzero.screen", Screen=_Screen)
+sys.modules["pgzero.actor"] = _make_module("pgzero.actor", Actor=Actor)
+sys.modules["pgzero.loaders"] = _make_module("pgzero.loaders", images=images, sounds=sounds)
 
 _pgzrun_mod = _make_module("pgzrun", go=go)
 sys.modules["pgzrun"] = _pgzrun_mod
@@ -3843,6 +4256,11 @@ _plt.show = _show
   function usesRich(src) {
     return /\brich\b/.test(src);
   }
+  // A program uses Pygame Zero if it imports pgzrun or pgzero (the required
+  // launch path). Used to preload game images before the student code runs.
+  function usesPgzero(src) {
+    return /\b(pgzrun|pgzero)\b/.test(src);
+  }
   // Estimate how many monospace characters fit across the output pane, so Rich
   // sizes tables/rules to fit (set via the COLUMNS env var before each run).
   function outputColumns() {
@@ -3931,6 +4349,11 @@ os.environ["TERM"] = "xterm-256color"
     if (current && !seen[current]) {
       FS.writeFile(WORKDIR + "/" + current, view.state.doc.toString());
     }
+
+    // Bundled site resources (resources/) are seeded into the File Store once
+    // at startup (see assets/file-store.js seedResources), so they appear in
+    // the File Manager and are staged here by the normal asset-areas loop
+    // below — no separate fetch needed.
 
     // Asset areas -> WORKDIR/<area>/<name> (binary or text).
     for (const area of ASSET_AREAS) {
@@ -4065,6 +4488,17 @@ os.environ["TERM"] = "xterm-256color"
       appendOutput("Couldn't prepare your files: " + String(e && e.message || e), "error");
       exitRunningState();
       return;
+    }
+    // Eagerly decode every staged image so pgzero's images/Actor/blit are
+    // fully synchronous (even when an Actor is built at top level before
+    // pgzrun.go()). Done after staging so the files exist on the FS.
+    if (usesPgzero(source)) {
+      try {
+        await globalThis.jsPgzPreloadImages();
+        await globalThis.jsPgzPreloadSounds();
+      } catch (e) {
+        appendOutput("Couldn't load game assets: " + String(e && e.message || e), "error");
+      }
     }
     const run = pyodide.globals.get("__run_user_code");
     try {

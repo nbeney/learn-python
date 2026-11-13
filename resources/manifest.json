@@ -1,0 +1,5 @@
+{
+  "images": ["alien.png", "alien_hurt.png"],
+  "sounds": ["eep.wav"],
+  "music": []
+}

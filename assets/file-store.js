@@ -225,6 +225,72 @@
     });
   }
 
+  // One-time seeding of the bundled site resources (images/sounds/music shipped
+  // in resources/) into the store so they appear in the File Manager and the
+  // editor as regular, user-manageable assets. Guarded by a meta flag so it
+  // runs exactly once per store — a file the user later deletes does NOT come
+  // back. Failures are swallowed so a missing/erroring manifest never blocks
+  // startup.
+  var RESOURCES_SEEDED_KEY = "resourcesSeeded";
+  var RESOURCE_AREAS = ["images", "sounds", "music"];
+
+  function resourcesBase() {
+    // resources/ sits next to the HTML pages, which live one level above the
+    // assets/ dir this script is served from. Resolve relative to that page.
+    try {
+      return new URL("resources/", window.location.href).href;
+    } catch (_) {
+      return "resources/";
+    }
+  }
+
+  function seedResources() {
+    if (typeof fetch === "undefined") return Promise.resolve();
+    return impl.getMeta(RESOURCES_SEEDED_KEY).then(function (done) {
+      if (done) return;
+      var base = resourcesBase();
+      return fetch(base + "manifest.json", { cache: "no-cache" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (manifest) {
+          if (!manifest) return;
+          var chain = Promise.resolve();
+          RESOURCE_AREAS.forEach(function (area) {
+            var files = manifest[area];
+            if (!Array.isArray(files)) return;
+            files.forEach(function (name) {
+              chain = chain.then(function () {
+                return seedOneResource(base, area, name);
+              });
+            });
+          });
+          return chain;
+        })
+        .then(function () {
+          return impl.setMeta(RESOURCES_SEEDED_KEY, true);
+        })
+        .catch(function () { /* resources unavailable — skip, retry next load */ });
+    });
+  }
+
+  // Fetch one bundled asset and store it as a binary record — but only if the
+  // user has not already created a file of the same name (never clobber).
+  function seedOneResource(base, area, name) {
+    var path = makeKey(area, name);
+    return impl.getRecord(path).then(function (existing) {
+      if (existing) return;
+      return fetch(base + area + "/" + name, { cache: "no-cache" })
+        .then(function (r) {
+          if (!r.ok) return;
+          return r.blob();
+        })
+        .then(function (blob) {
+          if (!blob) return;
+          return impl.putRecord(makeRecord(path, blob));
+        })
+        .catch(function () { /* skip this one resource */ });
+    });
+  }
+
   // ---- Public API ----------------------------------------------------------
   var readyPromise = null;
 
@@ -242,6 +308,8 @@
     }).then(function (flag) {
       persistRequested = !!flag;
       return seedIfEmpty();
+    }).then(function () {
+      return seedResources();
     });
     return readyPromise;
   }

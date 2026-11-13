@@ -231,18 +231,18 @@ tests; the constraint is noted rather than assuming a framework exists.
 - [x] 13. Phase 2 checkpoint
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 14. Images loader and blit (Phase 3)
-  - [ ] 14.1 Implement asset-name validation and the `images` loader
+- [x] 14. Images loader and blit (Phase 3)
+  - [x] 14.1 Implement asset-name validation and the `images` loader
     - Validate `^[a-z][a-z0-9_]*$` before any FS access; read `images/<name>.<ext>` via
       `pyodide.FS.readFile` trying `.png`/`.jpg`/`.gif`; `createImageBitmap`; cache by name; raise
       clear Python errors for missing files and surface readable decode failures without
       starting/continuing the loop. Eager-decode staged `images/` at `_reset()` so the frame path
       is synchronous. Do not add new staging.
     - _Requirements: 13.1, 13.2, 13.4, 13.5, 18.1, 18.2_
-  - [ ] 14.2 Implement `jsPgzBlit` and `screen.blit`
+  - [x] 14.2 Implement `jsPgzBlit` and `screen.blit`
     - Draw a cached image handle at `(x, y)` in CSS-pixel coords.
     - _Requirements: 13.3_
-  - [ ]* 14.3 Write property/unit tests for asset-name validity
+  - [x]* 14.3 Write property/unit tests for asset-name validity
     - **Property 8: Asset name validity**
     - **Validates: Requirements 18.1, 18.2**
     - Pure-Python validation test (invalid names raise before FS access; valid names resolve to
@@ -251,18 +251,18 @@ tests; the constraint is noted rather than assuming a framework exists.
     - Blit an uploaded image; confirm a clear error for a missing/invalid name.
     - _Requirements: 13.3, 13.4, 18.1_
 
-- [ ] 15. Actor (Phase 3)
-  - [ ] 15.1 Implement the `Actor` class
+- [x] 15. Actor (Phase 3)
+  - [x] 15.1 Implement the `Actor` class
     - Construct from an image name (+ `pos`), size the backing `Rect` from the image; delegate
       `pos`/`x`/`y`/anchor attrs to the Rect; default `anchor` to `center`; `angle` (anticlockwise
       around anchor), `opacity` (0..1); `distance_to`/`angle_to` (pure math); `colliderect`/
       `collidepoint` via the Rect.
     - _Requirements: 14.1, 14.2, 14.3, 14.6, 14.7_
-  - [ ] 15.2 Implement `jsPgzDrawActor` and `Actor.draw()`
+  - [x] 15.2 Implement `jsPgzDrawActor` and `Actor.draw()`
     - Apply `translate(anchorPx)` + `rotate(-angle)` + `globalAlpha=opacity`; render at current
       position/angle/opacity.
     - _Requirements: 14.4, 14.5, 14.8_
-  - [ ]* 15.3 Write unit tests for Actor geometry
+  - [x]* 15.3 Write unit tests for Actor geometry
     - Verify anchor/pos delegation, `distance_to`/`angle_to`, and collision delegation (pure
       Python, no canvas).
     - _Requirements: 14.2, 14.3, 14.6, 14.7_
@@ -342,8 +342,15 @@ tests; the constraint is noted rather than assuming a framework exists.
   validation, ptext wrap) is deliberately kept bridge-free so it is testable outside the browser.
 - Each task references specific requirement clauses for traceability; property-test tasks also cite
   their design Property number.
-- No new asset staging is added — assets are read from the already-staged Pyodide FS
-  `images/`/`sounds/`/`music/` dirs via `pyodide.FS.readFile`.
+- Assets are read from the staged Pyodide FS `images/`/`sounds/`/`music/` dirs via
+  `pyodide.FS.readFile`. In addition to File Manager uploads, bundled site resources listed in
+  `resources/manifest.json` are fetched over HTTP and staged automatically each run (added in
+  Phase 3 at the user's request so the Alien example's `alien`/`alien_hurt` images and `eep`
+  sound are always available without an upload). User uploads of the same name take precedence.
+- A minimal Web Audio `sounds` loader (`sounds.<name>.play()/stop()/get_length()`) was brought
+  forward from Phase 4 into Phase 3 so the Alien sample's `sounds.eep.play()` works end-to-end.
+  The fuller Phase 4 semantics (finite loop counts, per-buffer stop, concurrent-source tracking
+  nuances) remain tracked under task 17.
 
 ## Task Dependency Graph
 
