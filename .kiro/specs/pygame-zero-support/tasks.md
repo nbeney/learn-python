@@ -311,18 +311,21 @@ tests; the constraint is noted rather than assuming a framework exists.
 - [ ] 19. Phase 5 checkpoint
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 20. Documentation deliverable
-  - [ ] 20.1 Create `cheatsheet-pgzero.html` mirroring the existing cheatsheets
+- [x] 20. Documentation deliverable
+  - [x] 20.1 Create `cheatsheet-pgzero.html` mirroring the existing cheatsheets
     - Document that the game fills the game area, that `WIDTH`/`HEIGHT` are ignored, that
       `pgzrun.go()` is required, and the asset-name rules (`^[a-z][a-z0-9_]*$`).
     - _Requirements: 19.1, 19.2_
-  - [ ] 20.2 Add a pgzero hub card on `index.html`
-    - Link to `cheatsheet-pgzero.html`, matching existing card markup/styles.
+  - [x] 20.2 Add a pgzero hub card linking to `cheatsheet-pgzero.html`
+    - Added on the `cheatsheet.html` cheatsheets landing page (where the other per-topic cheatsheet
+      cards live), matching existing card markup/styles. Per the user's request the card is NOT on
+      `index.html` (whose cards are tool-level, not per-cheatsheet).
     - _Requirements: 19.3_
-  - [ ] 20.3 Add per-phase sample programs to `assets/samples.js`
-    - P1 shapes+text+`clock.schedule_interval`; P2 keyboard/mouse control; P3 rotating/bouncing
-      Actor; P4 click-to-play sound; P5 music `play_once` + `on_music_end` chaining + `fadeout`.
-      Keep each file Thonny-compatible (unchanged under real pgzero).
+  - [x] 20.3 Add per-phase sample programs to `assets/samples.js`
+    - P1 shapes+text (bouncing shapes); P2 keyboard/mouse control; P3 rotating/bouncing Actor (the
+      Alien walk, with `clock.schedule_unique`); P4 click-to-play sound; P5 music play/play_once +
+      `on_music_end` + `fadeout` + volume. Each sample is Thonny-compatible (unchanged under real
+      pgzero).
     - _Requirements: 19.4_
 
 - [ ] 21. Final checkpoint

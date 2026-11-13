@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>🎮 Pygame Zero Cheatsheet</title>
+
+<!-- Shared snake favicon across all pages. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐍</text></svg>" />
+
+<!-- Apply the saved theme before paint to avoid a flash of the wrong colours. -->
+<script>
+  (function () {
+    var t = localStorage.getItem("theme") || "system";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+
+<style>
+  :root {
+    --bg: #f6f8fa;
+    --card: #ffffff;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --border: #d0d7de;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --accent: #58a6ff;
+    --border: #30363d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="system"], :root:not([data-theme]) {
+      --bg: #0d1117;
+      --card: #161b22;
+      --text: #e6edf3;
+      --muted: #9da7b3;
+      --accent: #58a6ff;
+      --border: #30363d;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem 1rem 4rem;
+  }
+
+  .wrap { max-width: 820px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 2.5rem; }
+  header h1 { font-size: 2.4rem; margin: 0 0 .3rem; }
+  header p { color: var(--muted); margin: 0; }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1.6rem;
+  }
+
+  h2 { margin: 0 0 .2rem; font-size: 1.5rem; }
+  .blurb { color: var(--muted); margin: 0 0 1rem; font-size: .95rem; }
+
+  /* Static, display-only code blocks (no editor, no running here). */
+  pre.code {
+    margin: .6rem 0 0;
+    background: #0d1117; color: #e6edf3;
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: .8rem 1rem; overflow: auto;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: .9rem; line-height: 1.5;
+  }
+  :root:not([data-theme="dark"]) pre.code { background: #161b22; }
+
+  /* Inline command reference tables. */
+  table.ref { width: 100%; border-collapse: collapse; margin-top: .4rem; }
+  table.ref td {
+    border-top: 1px solid var(--border);
+    padding: .35rem .4rem; vertical-align: top; font-size: .92rem;
+  }
+  table.ref td.cmd {
+    width: 42%; white-space: nowrap;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    color: var(--accent);
+  }
+  table.ref tr:first-child td { border-top: none; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+  .tip {
+    border-left: 4px solid var(--accent);
+    background: rgba(88,166,255,.08);
+    padding: .5rem .9rem; border-radius: 6px;
+    margin-top: 1rem; font-size: .9rem;
+  }
+
+  footer { text-align: center; color: var(--muted); font-size: .85rem; margin-top: 2rem; }
+
+  .home-emoji { color: inherit; text-decoration: none; cursor: pointer; }
+  .home-emoji:hover { filter: brightness(1.15); }
+
+  /* ---------- Corner menu (navigation + theme) ---------- */
+  .menu {
+    position: fixed; top: 12px; z-index: 50;
+    left: 0; right: 0;
+    margin: 0 auto;
+    width: calc(100% - 2rem); max-width: 820px;
+    display: flex; justify-content: flex-end;
+    pointer-events: none;
+  }
+  .menu > * { pointer-events: auto; }
+  .menu-btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    font-size: 1.2rem; line-height: 1; cursor: pointer;
+    width: 42px; height: 42px;
+  }
+  .menu-btn:hover { border-color: var(--accent); }
+  .menu-panel {
+    position: absolute; top: 48px; right: 0;
+    min-width: 180px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: .4rem;
+    box-shadow: 0 10px 24px rgba(0,0,0,.22);
+    display: none;
+  }
+  .menu.open .menu-panel { display: block; }
+  .menu-panel a {
+    display: block; text-decoration: none;
+    color: var(--text); font-size: .95rem;
+    padding: .5rem .6rem; border-radius: 8px;
+  }
+  .menu-panel a:hover { background: rgba(127,127,127,.14); }
+  .menu-panel a[aria-current="page"] {
+    color: var(--muted); font-weight: 600; pointer-events: none;
+  }
+  .menu-panel a[aria-current="page"]::after { content: " ●"; color: var(--accent); }
+  .menu-sep { height: 1px; background: var(--border); margin: .4rem .2rem; }
+  .menu-label { font-size: .75rem; color: var(--muted); padding: .2rem .6rem; }
+
+  .theme-switch { display: flex; gap: .15rem; padding: .2rem .4rem .3rem; }
+  .theme-switch button {
+    flex: 1; background: transparent; border: 1px solid var(--border);
+    cursor: pointer; color: var(--muted); font-size: .95rem; line-height: 1;
+    padding: .4rem; border-radius: 8px;
+  }
+  .theme-switch button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .theme-switch button:hover { color: var(--text); }
+  .theme-switch button[aria-pressed="true"]:hover { color: #fff; }
+
+  @media print {
+    body { background: #fff; color: #111; padding: 0; }
+    section { background: #fff; border: 1px solid #ccc; break-inside: avoid; }
+    pre.code { background: #f4f4f4; color: #111; border: 1px solid #ccc; }
+    .menu { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Corner menu: navigation + theme. -->
+<nav class="menu" id="menu">
+  <button class="menu-btn" id="menuBtn" aria-haspopup="true" aria-expanded="false" aria-label="Menu">☰</button>
+  <div class="menu-panel" role="menu">
+    <a href="index.html" role="menuitem">🏠 Home</a>
+    <a href="cheatsheet.html" role="menuitem">📖 Cheatsheets</a>
+    <a href="shell.html" role="menuitem">⌨️ Shell</a>
+    <a href="editor.html" role="menuitem">📝 Editor</a>
+    <a href="file-manager.html" role="menuitem">🗂️ File Manager</a>
+    <a href="https://pyblocks.icantech.org/" target="_blank" role="menuitem">🔁 Blocks to Python</a>
+    <a href="https://pywatch.icantech.org/" target="_blank" role="menuitem">👁 Python Visualizer</a>
+    <div class="menu-sep"></div>
+    <div class="menu-label">Theme</div>
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button data-theme-value="light"  title="Light">☀️</button>
+      <button data-theme-value="dark"   title="Dark">🌙</button>
+      <button data-theme-value="system" title="Match system">💻</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header>
+    <h1><a href="index.html" class="home-emoji" title="Home" aria-label="Home">🎮</a> Pygame Zero Cheatsheet</h1>
+    <p>Make games with Pygame Zero. Copy any example into the <a href="editor.html">Editor</a> and press ▶ Run.</p>
+  </header>
+
+  <section>
+    <h2>🚀 Getting started</h2>
+    <p class="blurb">A Pygame Zero game defines a <code>draw()</code> function (and usually
+      <code>update(dt)</code>), then starts the game loop. In this editor you must
+      <strong>import <code>pgzrun</code> and call <code>pgzrun.go()</code></strong> at the end —
+      the same two lines you would add in Thonny.</p>
+    <pre class="code">import pgzrun
+
+def draw():
+    screen.fill("midnightblue")
+    screen.draw.filled_circle((200, 150), 40, "orange")
+
+def update(dt):
+    pass            # move things here; dt = seconds since the last frame
+
+pgzrun.go()         # starts the game — keep this as the last line</pre>
+    <div class="tip">💡 In this editor the game fills the game area, so <code>WIDTH</code> and
+      <code>HEIGHT</code> are <strong>ignored</strong>. Use <code>screen.width</code> and
+      <code>screen.height</code> (or <code>screen.bounds()</code>) when you need the size. You do
+      not import <code>screen</code>, <code>Actor</code>, <code>keyboard</code>, … — they are
+      ready to use, exactly like in real Pygame Zero.</div>
+  </section>
+
+  <section>
+    <h2>🔁 The game loop: draw &amp; update</h2>
+    <p class="blurb">The engine calls <code>draw()</code> to paint each frame and
+      <code>update(dt)</code> to move things. <code>dt</code> is the seconds elapsed since the
+      previous frame — multiply speeds by it for smooth, frame-rate-independent motion.</p>
+    <table class="ref">
+      <tr><td class="cmd">draw()</td><td>Paint the frame. Called every frame.</td></tr>
+      <tr><td class="cmd">update()</td><td>Update game state. Called every frame.</td></tr>
+      <tr><td class="cmd">update(dt)</td><td>Same, but given <code>dt</code> = seconds since last frame.</td></tr>
+    </table>
+    <pre class="code">import pgzrun
+
+x = 20
+
+def update(dt):
+    global x
+    x += 120 * dt           # 120 pixels per second, any frame rate
+
+def draw():
+    screen.clear()
+    screen.draw.filled_rect(Rect(x, 100, 60, 60), "tomato")
+
+pgzrun.go()</pre>
+  </section>
+
+  <section>
+    <h2>🖌️ Drawing on the screen</h2>
+    <p class="blurb">Draw shapes and fills through <code>screen</code>. Coordinates are in pixels
+      with <code>(0, 0)</code> at the <strong>top-left</strong>, x to the right and y downward.</p>
+    <table class="ref">
+      <tr><td class="cmd">screen.clear()</td><td>Clear the surface to black.</td></tr>
+      <tr><td class="cmd">screen.fill(color)</td><td>Fill the whole surface with a colour.</td></tr>
+      <tr><td class="cmd">screen.fill(c, gcolor)</td><td>Fill with a top→bottom gradient.</td></tr>
+      <tr><td class="cmd">screen.bounds()</td><td>A <code>Rect</code> covering the whole surface.</td></tr>
+      <tr><td class="cmd">screen.draw.line(a, b, color)</td><td>Line between points <code>a</code> and <code>b</code>.</td></tr>
+      <tr><td class="cmd">screen.draw.circle(pos, r, color)</td><td>Circle outline.</td></tr>
+      <tr><td class="cmd">screen.draw.filled_circle(pos, r, color)</td><td>Filled circle.</td></tr>
+      <tr><td class="cmd">screen.draw.rect(rect, color)</td><td>Rectangle outline.</td></tr>
+      <tr><td class="cmd">screen.draw.filled_rect(rect, color)</td><td>Filled rectangle.</td></tr>
+    </table>
+    <p class="blurb" style="margin-top:1rem">Colours can be names (<code>"red"</code>), hex
+      (<code>"#ff8800"</code>), or tuples <code>(r, g, b)</code> / <code>(r, g, b, a)</code>.</p>
+    <pre class="code">import pgzrun
+
+def draw():
+    screen.fill("navy", "black")           # gradient background
+    screen.draw.line((0, 180), (400, 180), "white")
+    screen.draw.circle((120, 90), 30, "cyan")
+    screen.draw.filled_rect(Rect(200, 60, 80, 60), "gold")
+
+pgzrun.go()</pre>
+  </section>
+
+  <section>
+    <h2>✍️ Text</h2>
+    <p class="blurb">Draw styled text with <code>screen.draw.text</code>. Position it with any one
+      anchor (<code>topleft</code>, <code>center</code>, <code>midbottom</code>, …) or a plain
+      <code>(x, y)</code>.</p>
+    <table class="ref">
+      <tr><td class="cmd">screen.draw.text(s, (x, y), ...)</td><td>Draw text <code>s</code> at a position.</td></tr>
+      <tr><td class="cmd">fontsize=40</td><td>Text size in pixels.</td></tr>
+      <tr><td class="cmd">color="white"</td><td>Text colour.</td></tr>
+      <tr><td class="cmd">owidth, ocolor</td><td>Outline width and colour.</td></tr>
+      <tr><td class="cmd">shadow=(1,1), scolor</td><td>Drop shadow offset and colour.</td></tr>
+      <tr><td class="cmd">gcolor="blue"</td><td>Vertical gradient from <code>color</code> to <code>gcolor</code>.</td></tr>
+      <tr><td class="cmd">angle=15</td><td>Rotate the text (degrees, anticlockwise).</td></tr>
+    </table>
+    <pre class="code">import pgzrun
+
+def draw():
+    screen.fill("black")
+    screen.draw.text("Score: 10", topleft=(10, 10), fontsize=30, color="white")
+    screen.draw.text("WIN!", center=(200, 120), fontsize=70,
+                     color="yellow", owidth=1, ocolor="red")
+
+pgzrun.go()</pre>
+    <div class="tip">💡 Text uses the system font. A <code>fontname</code> option is accepted but
+      ignored here, so your code still runs unchanged in Thonny.</div>
+  </section>
+
+  <section>
+    <h2>🧱 Rect &amp; ZRect</h2>
+    <p class="blurb">Rectangles store position and size and have handy anchor points you can read
+      <em>and</em> write (writing one moves the rectangle). <code>ZRect</code> is the same but keeps
+      decimals.</p>
+    <table class="ref">
+      <tr><td class="cmd">Rect(x, y, w, h)</td><td>A rectangle at <code>(x, y)</code> of size <code>w × h</code>.</td></tr>
+      <tr><td class="cmd">r.x, r.y, r.width, r.height</td><td>Position and size.</td></tr>
+      <tr><td class="cmd">r.left, r.right, r.top, r.bottom</td><td>Edges.</td></tr>
+      <tr><td class="cmd">r.center, r.centerx, r.centery</td><td>Centre point.</td></tr>
+      <tr><td class="cmd">r.topleft, r.midbottom, …</td><td>Corner / mid-edge anchor points.</td></tr>
+      <tr><td class="cmd">r.colliderect(other)</td><td><code>True</code> if two rects overlap.</td></tr>
+      <tr><td class="cmd">r.collidepoint(x, y)</td><td><code>True</code> if a point is inside.</td></tr>
+    </table>
+    <pre class="code">box = Rect(0, 0, 50, 50)
+box.center = (200, 150)          # move so its centre is here
+print(box.topleft)               # (175, 125)
+print(box.colliderect(Rect(180, 130, 10, 10)))   # True</pre>
+  </section>
+
+  <section>
+    <h2>🧍 Actors (sprites)</h2>
+    <p class="blurb">An <code>Actor</code> is an image you can move, rotate and fade. Upload an
+      image in the <a href="file-manager.html">File Manager</a> (or use a bundled one like
+      <code>alien</code>), then build an actor from its name.</p>
+    <table class="ref">
+      <tr><td class="cmd">Actor("alien")</td><td>Make an actor from <code>images/alien.png</code>.</td></tr>
+      <tr><td class="cmd">a.pos = (x, y)</td><td>Move the actor (its anchor goes to <code>pos</code>).</td></tr>
+      <tr><td class="cmd">a.x, a.y, a.left, a.center, …</td><td>Position like a <code>Rect</code>.</td></tr>
+      <tr><td class="cmd">a.angle = 45</td><td>Rotation in degrees (anticlockwise).</td></tr>
+      <tr><td class="cmd">a.opacity = 0.5</td><td>Transparency, <code>0</code>–<code>1</code>.</td></tr>
+      <tr><td class="cmd">a.image = "alien_hurt"</td><td>Swap the picture.</td></tr>
+      <tr><td class="cmd">a.draw()</td><td>Draw the actor this frame.</td></tr>
+      <tr><td class="cmd">a.distance_to(target)</td><td>Distance to a point or actor.</td></tr>
+      <tr><td class="cmd">a.angle_to(target)</td><td>Angle to a point or actor.</td></tr>
+      <tr><td class="cmd">a.colliderect(other) · a.collidepoint(p)</td><td>Collision checks.</td></tr>
+    </table>
+    <pre class="code">import pgzrun
+
+alien = Actor("alien")
+alien.pos = (100, 100)
+
+def update(dt):
+    alien.x += 100 * dt
+    if alien.left > screen.width:
+        alien.right = 0
+
+def draw():
+    screen.clear()
+    alien.draw()
+
+pgzrun.go()</pre>
+  </section>
+
+  <section>
+    <h2>⌨️ Keyboard</h2>
+    <p class="blurb">Check which keys are held with <code>keyboard</code>, or react to presses with
+      the <code>on_key_down</code> / <code>on_key_up</code> hooks.</p>
+    <table class="ref">
+      <tr><td class="cmd">keyboard.left / .right / .up / .down</td><td>Arrow keys (<code>True</code> while held).</td></tr>
+      <tr><td class="cmd">keyboard.space · keyboard.a</td><td>Any key by name.</td></tr>
+      <tr><td class="cmd">keyboard[keys.A]</td><td>Same, using the <code>keys</code> enum.</td></tr>
+      <tr><td class="cmd">on_key_down(key)</td><td>Called when a key goes down.</td></tr>
+      <tr><td class="cmd">on_key_up(key)</td><td>Called when a key is released.</td></tr>
+    </table>
+    <pre class="code">import pgzrun
+
+player = Rect(180, 130, 40, 40)
+
+def update(dt):
+    if keyboard.left:  player.x -= 200 * dt
+    if keyboard.right: player.x += 200 * dt
+
+def draw():
+    screen.fill("black")
+    screen.draw.filled_rect(player, "lime")
+
+pgzrun.go()</pre>
+    <div class="tip">💡 Click the game once so it can hear the keyboard.</div>
+  </section>
+
+  <section>
+    <h2>🖱️ Mouse</h2>
+    <p class="blurb">React to clicks and movement. <code>pos</code> is <code>(x, y)</code> in the
+      game's coordinates; <code>button</code> is one of the <code>mouse</code> values.</p>
+    <table class="ref">
+      <tr><td class="cmd">on_mouse_down(pos)</td><td>A mouse button was pressed at <code>pos</code>.</td></tr>
+      <tr><td class="cmd">on_mouse_down(pos, button)</td><td>Also tells you which button.</td></tr>
+      <tr><td class="cmd">on_mouse_up(pos, button)</td><td>A button was released.</td></tr>
+      <tr><td class="cmd">on_mouse_move(pos, rel, buttons)</td><td>The mouse moved.</td></tr>
+      <tr><td class="cmd">mouse.LEFT / MIDDLE / RIGHT</td><td>Button values.</td></tr>
+    </table>
+    <pre class="code">import pgzrun
+
+spots = []
+
+def draw():
+    screen.fill("black")
+    for p in spots:
+        screen.draw.filled_circle(p, 15, "gold")
+
+def on_mouse_down(pos):
+    spots.append(pos)
+
+pgzrun.go()</pre>
+  </section>
+
+  <section>
+    <h2>⏰ Clock (timing)</h2>
+    <p class="blurb">Schedule functions to run later or repeatedly — great for spawning enemies,
+      countdowns and animations.</p>
+    <table class="ref">
+      <tr><td class="cmd">clock.schedule(fn, delay)</td><td>Call <code>fn</code> once after <code>delay</code> seconds.</td></tr>
+      <tr><td class="cmd">clock.schedule_unique(fn, delay)</td><td>Same, replacing any pending call to <code>fn</code>.</td></tr>
+      <tr><td class="cmd">clock.schedule_interval(fn, secs)</td><td>Call <code>fn</code> every <code>secs</code> seconds.</td></tr>
+      <tr><td class="cmd">clock.unschedule(fn)</td><td>Cancel a scheduled call.</td></tr>
+    </table>
+    <pre class="code">import pgzrun
+
+count = 0
+
+def tick():
+    global count
+    count += 1
+
+def draw():
+    screen.fill("black")
+    screen.draw.text(str(count), center=(200, 120), fontsize=80, color="white")
+
+clock.schedule_interval(tick, 1.0)   # once a second
+pgzrun.go()</pre>
+  </section>
+
+  <section>
+    <h2>🔊 Sounds</h2>
+    <p class="blurb">Play short sound effects from the <code>sounds/</code> area. The editor ships
+      with <code>eep</code> and <code>ding</code>; upload your own <code>.wav</code> files in the
+      File Manager.</p>
+    <table class="ref">
+      <tr><td class="cmd">sounds.ding.play()</td><td>Play a sound once.</td></tr>
+      <tr><td class="cmd">sounds.ding.play(3)</td><td>Play and repeat it 3 more times.</td></tr>
+      <tr><td class="cmd">sounds.ding.stop()</td><td>Stop that sound.</td></tr>
+      <tr><td class="cmd">sounds.ding.get_length()</td><td>Length in seconds.</td></tr>
+    </table>
+    <pre class="code">import pgzrun
+
+def draw():
+    screen.fill("teal")
+    screen.draw.text("Click for a ding", center=(200, 120),
+                     fontsize=34, color="white")
+
+def on_mouse_down(pos):
+    sounds.ding.play()
+
+pgzrun.go()</pre>
+  </section>
+
+  <section>
+    <h2>🎵 Music</h2>
+    <p class="blurb">Background music plays one track at a time from the <code>music/</code> area.
+      The editor ships with <code>spook4</code>; upload your own <code>.mp3</code> files too.</p>
+    <table class="ref">
+      <tr><td class="cmd">music.play(name)</td><td>Play a track on a loop.</td></tr>
+      <tr><td class="cmd">music.play_once(name)</td><td>Play a track once.</td></tr>
+      <tr><td class="cmd">music.queue(name)</td><td>Play this track after the current one.</td></tr>
+      <tr><td class="cmd">music.stop()</td><td>Stop the music.</td></tr>
+      <tr><td class="cmd">music.pause() · music.unpause()</td><td>Pause / resume.</td></tr>
+      <tr><td class="cmd">music.fadeout(secs)</td><td>Fade to silence over <code>secs</code> seconds.</td></tr>
+      <tr><td class="cmd">music.set_volume(v) · music.get_volume()</td><td>Volume, <code>0</code>–<code>1</code>.</td></tr>
+      <tr><td class="cmd">on_music_end()</td><td>Called when a one-shot track finishes.</td></tr>
+    </table>
+    <pre class="code">import pgzrun
+
+def draw():
+    screen.fill("indigo")
+    screen.draw.text("Press P for music", center=(200, 120),
+                     fontsize=34, color="white")
+
+def on_key_down(key):
+    if key == keys.P:
+        music.play("spook4")
+
+pgzrun.go()</pre>
+    <div class="tip">💡 Browsers only start audio after you interact with the page, so click the
+      game (or press a key) before expecting sound.</div>
+  </section>
+
+  <section>
+    <h2>🖼️ Asset names</h2>
+    <p class="blurb">Images, sounds and music are looked up by name (no file extension, no folder).
+      Names must be <strong>lowercase letters, numbers and underscores, starting with a letter</strong>
+      — e.g. <code>alien</code>, <code>alien_hurt</code>, <code>level_1</code>.</p>
+    <table class="ref">
+      <tr><td class="cmd">images.alien</td><td>Loads <code>images/alien.png</code> (also <code>.jpg</code>, <code>.gif</code>).</td></tr>
+      <tr><td class="cmd">sounds.ding</td><td>Loads <code>sounds/ding.wav</code> (also <code>.ogg</code>).</td></tr>
+      <tr><td class="cmd">music.play("spook4")</td><td>Plays <code>music/spook4.mp3</code> (also <code>.ogg</code>).</td></tr>
+    </table>
+    <div class="tip">💡 Same code, two homes: a game written here runs unchanged in Thonny after
+      <code>pip install pgzero</code> and <code>pgzrun game.py</code>. For more, see the
+      <a href="https://pygame-zero.readthedocs.io/" target="_blank" rel="noopener">official Pygame
+      Zero docs ↗</a>.</div>
+  </section>
+
+  <footer>© Nicolas Beney. Licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0 ↗</a>.</footer>
+</div>
+
+<!-- Menu + theme wiring. -->
+<script>
+  (function () {
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll(".theme-switch button");
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      localStorage.setItem("theme", theme);
+      buttons.forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.dataset.themeValue === theme));
+      });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () { applyTheme(b.dataset.themeValue); });
+    });
+    applyTheme(localStorage.getItem("theme") || "system");
+
+    var menu = document.getElementById("menu");
+    var menuBtn = document.getElementById("menuBtn");
+    if (menu && menuBtn) {
+      function setOpen(open) {
+        menu.classList.toggle("open", open);
+        menuBtn.setAttribute("aria-expanded", String(open));
+      }
+      menuBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setOpen(!menu.classList.contains("open"));
+      });
+      document.addEventListener("click", function (e) {
+        if (!menu.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") setOpen(false);
+      });
+    }
+  })();
+</script>
+
+<!-- Snippet tools: Copy + Open-in-editor buttons (shared). -->
+<script src="assets/snippet-tools.js"></script>
+</body>
+</html>
