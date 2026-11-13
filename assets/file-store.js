@@ -225,13 +225,18 @@
     });
   }
 
-  // One-time seeding of the bundled site resources (images/sounds/music shipped
-  // in resources/) into the store so they appear in the File Manager and the
-  // editor as regular, user-manageable assets. Guarded by a meta flag so it
-  // runs exactly once per store — a file the user later deletes does NOT come
-  // back. Failures are swallowed so a missing/erroring manifest never blocks
-  // startup.
-  var RESOURCES_SEEDED_KEY = "resourcesSeeded";
+  // Seed the bundled site resources (images/sounds/music shipped in resources/)
+  // into the store so they appear in the File Manager and the editor as
+  // regular, user-manageable assets.
+  //
+  // Each resource PATH is seeded exactly once, tracked in a per-path ledger in
+  // meta ("resourcesSeededPaths"). This means:
+  //   * a file the user later deletes does NOT come back (its path stays in
+  //     the ledger), and
+  //   * a NEWLY added manifest entry is seeded on the next load (its path is
+  //     not yet in the ledger), so adding a bundled asset "just works".
+  // Failures are swallowed so a missing/erroring manifest never blocks startup.
+  var RESOURCES_SEEDED_PATHS_KEY = "resourcesSeededPaths";
   var RESOURCE_AREAS = ["images", "sounds", "music"];
 
   function resourcesBase() {
@@ -246,30 +251,33 @@
 
   function seedResources() {
     if (typeof fetch === "undefined") return Promise.resolve();
-    return impl.getMeta(RESOURCES_SEEDED_KEY).then(function (done) {
-      if (done) return;
-      var base = resourcesBase();
-      return fetch(base + "manifest.json", { cache: "no-cache" })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (manifest) {
-          if (!manifest) return;
-          var chain = Promise.resolve();
-          RESOURCE_AREAS.forEach(function (area) {
-            var files = manifest[area];
-            if (!Array.isArray(files)) return;
-            files.forEach(function (name) {
-              chain = chain.then(function () {
-                return seedOneResource(base, area, name);
-              });
-            });
+    var base = resourcesBase();
+    var seededPaths = null;        // the ledger (object used as a set)
+    return impl.getMeta(RESOURCES_SEEDED_PATHS_KEY).then(function (ledger) {
+      seededPaths = ledger || {};
+      return fetch(base + "manifest.json", { cache: "no-cache" });
+    }).then(function (r) {
+      return r && r.ok ? r.json() : null;
+    }).then(function (manifest) {
+      if (!manifest) return;
+      var chain = Promise.resolve();
+      RESOURCE_AREAS.forEach(function (area) {
+        var files = manifest[area];
+        if (!Array.isArray(files)) return;
+        files.forEach(function (name) {
+          var path = makeKey(area, name);
+          if (seededPaths[path]) return;            // already seeded once
+          chain = chain.then(function () {
+            return seedOneResource(base, area, name).then(function () {
+              seededPaths[path] = true;             // mark seeded (even if the
+            });                                      // user already had it)
           });
-          return chain;
-        })
-        .then(function () {
-          return impl.setMeta(RESOURCES_SEEDED_KEY, true);
-        })
-        .catch(function () { /* resources unavailable — skip, retry next load */ });
-    });
+        });
+      });
+      return chain.then(function () {
+        return impl.setMeta(RESOURCES_SEEDED_PATHS_KEY, seededPaths);
+      });
+    }).catch(function () { /* resources unavailable — retry next load */ });
   }
 
   // Fetch one bundled asset and store it as a binary record — but only if the

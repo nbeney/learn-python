@@ -1,5 +1,5 @@
 {
   "images": ["alien.png", "alien_hurt.png"],
-  "sounds": ["eep.wav"],
+  "sounds": ["eep.wav", "ding.wav"],
   "music": []
 }

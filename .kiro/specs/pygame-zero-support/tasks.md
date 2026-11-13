@@ -273,16 +273,17 @@ tests; the constraint is noted rather than assuming a framework exists.
 - [ ] 16. Phase 3 checkpoint
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 17. Sounds via Web Audio (Phase 4)
-  - [ ] 17.1 Implement the `sounds` loader and Web Audio decode/cache
+- [x] 17. Sounds via Web Audio (Phase 4)
+  - [x] 17.1 Implement the `sounds` loader and Web Audio decode/cache
     - Read `sounds/<name>.<ext>` (`.wav`/`.ogg`) via `pyodide.FS.readFile`; `decodeAudioData` to a
-      cached `AudioBuffer`; validate names; eager-decode staged `sounds/` at `_reset()`.
+      cached `AudioBuffer`; validate names; eager-decode staged `sounds/` (via a preload before
+      the program runs; also cleared in `_reset()`).
     - _Requirements: 16.1, 18.1, 18.2_
-  - [ ] 17.2 Implement `Sound` playback and stop-all teardown
-    - `jsPgzSoundPlay(name, loops)` (one-shot source; concurrent playback; finite loop count),
-      `jsPgzSoundStop(name)` (stop all live sources for the buffer), `jsPgzSoundLength(name)`
-      (`AudioBuffer.duration`); track live source nodes so `jsPgzStopAllAudio()` from
-      `pgzEndLoop()`/`_reset()` stops everything.
+  - [x] 17.2 Implement `Sound` playback and stop-all teardown
+    - `jsPgzSoundPlay(name, loops)` (one-shot source; concurrent playback; finite loop count via
+      restart-on-ended), `jsPgzSoundStop(name)` (stop all live sources for THAT sound, tracked by
+      name), `jsPgzSoundLength(name)` (`AudioBuffer.duration`); track live source nodes per name so
+      `jsPgzStopAllAudio()` from `pgzEndLoop()`/`_reset()` stops everything.
     - _Requirements: 16.2, 16.3, 16.4, 16.5, 16.6_
   - [ ]* 17.3 Manually verify concurrent sounds and stop-on-Stop [MANUAL-BROWSER]
     - Play overlapping sounds, confirm `get_length`, and confirm silence on Stop/reset.

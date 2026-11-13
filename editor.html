@@ -1927,13 +1927,15 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   // Clear the image cache (called on reset).
   globalThis.jsPgzClearImageCache = () => { pgzImageCache.clear(); };
 
-  // ----- Sounds (Web Audio): minimal play support for the Alien example -----
-  // Decoded sounds are cached by name as AudioBuffers; play() spawns a
-  // one-shot source so overlapping plays work. Live sources are tracked so
-  // jsPgzStopAllAudio() can silence everything on Stop/reset.
+  // ----- Sounds via Web Audio (Phase 4) -----
+  // Decoded sounds are cached by name as AudioBuffers; each play() spawns a
+  // one-shot source so overlapping plays work. Live sources are tracked BY
+  // NAME so stop(name) silences just that sound, while jsPgzStopAllAudio()
+  // silences everything on Stop/reset. A finite loop count is honoured by
+  // restarting the source on `ended` until the count is exhausted.
   let pgzAudioCtx = null;
   const pgzSoundCache = new Map();        // name -> AudioBuffer
-  const pgzLiveSources = new Set();       // live AudioBufferSourceNodes
+  const pgzLiveByName = new Map();        // name -> Set of live source nodes
   const PGZ_SOUND_EXTS = ["wav", "ogg"];
 
   function pgzGetAudioCtx() {
@@ -1981,27 +1983,53 @@ print(f"🚀 Have an amazing day, {name}! 💖")
     }
   };
 
-  globalThis.jsPgzSoundPlay = (name, loops) => {
-    const ctx = pgzGetAudioCtx();
-    const buf = pgzSoundCache.get(String(name));
-    if (!ctx || !buf) return;
-    if (ctx.state === "suspended") { try { ctx.resume(); } catch (_) {} }
+  function pgzTrackSource(name, src) {
+    let set = pgzLiveByName.get(name);
+    if (!set) { set = new Set(); pgzLiveByName.set(name, set); }
+    set.add(src);
+  }
+  function pgzUntrackSource(name, src) {
+    const set = pgzLiveByName.get(name);
+    if (set) { set.delete(src); if (!set.size) pgzLiveByName.delete(name); }
+  }
+
+  // Start one buffer source for `name`. `remaining` is the number of EXTRA
+  // repeats still to play after this one (pgzero's loops count); on `ended`
+  // we spawn the next repeat so finite looping works without gapless concerns.
+  function pgzStartSource(ctx, name, buf, remaining) {
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    if (loops && loops > 0) { src.loop = true; }
     src.connect(ctx.destination);
-    pgzLiveSources.add(src);
-    src.onended = () => { pgzLiveSources.delete(src); };
+    pgzTrackSource(name, src);
+    let stopped = false;
+    src.onended = () => {
+      pgzUntrackSource(name, src);
+      if (stopped) return;                 // explicit stop: do not continue
+      if (remaining > 0) pgzStartSource(ctx, name, buf, remaining - 1);
+    };
+    // Mark so an explicit stop() can prevent the next repeat.
+    src._pgzStop = () => { stopped = true; try { src.stop(); } catch (_) {} };
     src.start();
+    return src;
+  }
+
+  globalThis.jsPgzSoundPlay = (name, loops) => {
+    name = String(name);
+    const ctx = pgzGetAudioCtx();
+    const buf = pgzSoundCache.get(name);
+    if (!ctx || !buf) return;
+    if (ctx.state === "suspended") { try { ctx.resume(); } catch (_) {} }
+    pgzStartSource(ctx, name, buf, Math.max(0, loops | 0));
   };
 
   globalThis.jsPgzSoundStop = (name) => {
-    // Stop all live sources (we do not track which buffer each came from
-    // beyond the live set; this keeps the shim simple for beginners).
-    for (const src of Array.from(pgzLiveSources)) {
-      try { src.stop(); } catch (_) {}
-      pgzLiveSources.delete(src);
+    name = String(name);
+    const set = pgzLiveByName.get(name);
+    if (!set) return;
+    for (const src of Array.from(set)) {
+      if (src._pgzStop) src._pgzStop(); else { try { src.stop(); } catch (_) {} }
     }
+    pgzLiveByName.delete(name);
   };
 
   globalThis.jsPgzSoundLength = (name) => {
@@ -2010,10 +2038,12 @@ print(f"🚀 Have an amazing day, {name}! 💖")
   };
 
   globalThis.jsPgzStopAllAudio = () => {
-    for (const src of Array.from(pgzLiveSources)) {
-      try { src.stop(); } catch (_) {}
+    for (const [, set] of pgzLiveByName) {
+      for (const src of Array.from(set)) {
+        if (src._pgzStop) src._pgzStop(); else { try { src.stop(); } catch (_) {} }
+      }
     }
-    pgzLiveSources.clear();
+    pgzLiveByName.clear();
   };
 
   globalThis.jsPgzClearSoundCache = () => { pgzSoundCache.clear(); };
@@ -2290,14 +2320,24 @@ def __collect_async_funcs(tree):
     return async_funcs
 
 class _AsyncRewriter(ast.NodeTransformer):
-    def __init__(self, async_funcs):
+    def __init__(self, async_funcs, sync_only=None):
         self.async_funcs = async_funcs
+        # Names that must stay plain "def" (never async) and whose loop bodies
+        # must NOT get an injected "await __tick()" — the pgzero hooks, which
+        # the game loop calls synchronously each frame. Instrumenting them
+        # would either make them coroutines the loop never awaits, or inject
+        # an await into a non-async function (a SyntaxError).
+        self.sync_only = sync_only or set()
+        self._suppress_tick = 0        # >0 while inside a sync-only function
 
     def _tick_stmt(self):
         return ast.Expr(ast.Await(ast.Call(
             func=ast.Name(id="__tick", ctx=ast.Load()), args=[], keywords=[])))
 
     def _instrument(self, body):
+        if self._suppress_tick:
+            # Inside a pgzero hook: rewrite children but inject no __tick.
+            return [self.visit(stmt) for stmt in body]
         out = []
         for stmt in body:
             out.append(self._tick_stmt())
@@ -2315,6 +2355,15 @@ class _AsyncRewriter(ast.NodeTransformer):
         return node
 
     def visit_FunctionDef(self, node):
+        if node.name in self.sync_only:
+            # Keep it a plain def; visit the body with tick-injection off so
+            # loops inside a hook do not get an (illegal) await __tick().
+            self._suppress_tick += 1
+            try:
+                self.generic_visit(node)
+            finally:
+                self._suppress_tick -= 1
+            return node
         self.generic_visit(node)
         if node.name in self.async_funcs:
             # Turn "def f(...)" into "async def f(...)".
@@ -2395,10 +2444,22 @@ def __toplevel_names(tree):
                 names.add((a.asname or a.name).split(".")[0])
     return names
 
+_PGZ_HOOK_NAMES = frozenset({
+    "draw", "update", "on_mouse_down", "on_mouse_up", "on_mouse_move",
+    "on_key_down", "on_key_up", "on_music_end",
+})
+
 def __make_async(source):
     tree = ast.parse(source)
     async_funcs = __collect_async_funcs(tree)
-    rewriter = _AsyncRewriter(async_funcs)
+    # Pygame Zero hooks are called synchronously by the rAF game loop, so they
+    # must never become "async def" (even if they contain a loop). Force them
+    # to stay plain functions for pgzero programs.
+    sync_only = set()
+    if "pgzrun" in source or "pgzero" in source:
+        sync_only = set(_PGZ_HOOK_NAMES)
+        async_funcs = async_funcs - sync_only
+    rewriter = _AsyncRewriter(async_funcs, sync_only)
     new_body = []
     # Pygame Zero programs define top-level variables that hooks read (as
     # globals) and write (via \`global x\`). Because we wrap the program in an
@@ -3029,9 +3090,11 @@ class _Images:
         return self._load(name)[0]
 images = _Images()
 
-# ----- sounds loader + Sound -----
+# ----- sounds loader + Sound (Phase 4) -----
 # sounds.<name> returns a Sound whose play()/stop()/get_length() drive Web
-# Audio across the bridge. Sounds are eagerly decoded before the program runs.
+# Audio across the bridge. Sounds are eagerly decoded before the program runs,
+# so play() is synchronous. play(loops) repeats the sound loops extra times
+# (pgzero's contract); multiple plays overlap; stop() stops just this sound.
 class _Sound:
     def __init__(self, name):
         self._name = name

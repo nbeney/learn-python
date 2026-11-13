@@ -419,4 +419,27 @@ def set_alien_normal():
 pgzrun.go()
 `,
   },
+  {
+    name: "🎮 Pygame Zero: click for a sound",
+    code: `# Click anywhere to drop a circle and play a "ding".
+# The ding sound ships with the editor (sounds/ding.wav).
+# Click the game first so it can hear you.
+import pgzrun
+
+dots = []          # list of (x, y) we have clicked
+
+def draw():
+    screen.fill((10, 20, 35))
+    for (x, y) in dots:
+        screen.draw.filled_circle((x, y), 20, "gold")
+    screen.draw.text("Click to play a sound!", (10, 10),
+                     fontsize=28, color="white")
+
+def on_mouse_down(pos):
+    dots.append(pos)
+    sounds.ding.play()          # play the bundled chime
+
+pgzrun.go()
+`,
+  },
 ];
