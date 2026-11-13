@@ -289,15 +289,15 @@ tests; the constraint is noted rather than assuming a framework exists.
     - Play overlapping sounds, confirm `get_length`, and confirm silence on Stop/reset.
     - _Requirements: 16.2, 16.4, 16.6_
 
-- [ ] 18. Music channel (Phase 5)
-  - [ ] 18.1 Implement the single `<audio>` music channel
+- [x] 18. Music channel (Phase 5)
+  - [x] 18.1 Implement the single `<audio>` music channel
     - One reusable `<audio>`; `jsPgzMusicPlay` (loop), `PlayOnce`, `Queue`, `Stop` (pause+reset+
       clear queue), `Pause`/`Unpause`, `Fadeout(duration)` (ramp volume then stop),
       `SetVolume`/`GetVolume`, `IsPlaying(name)` (playing and src matches). Enforce at most one
       track at a time; raise a clear Python error for a missing music file without crashing the
-      loop.
+      loop. Music is streamed from a blob: URL built from the staged `music/<name>.mp3|ogg`.
     - _Requirements: 17.1, 17.2, 17.3, 17.6, 17.7, 17.8, 17.9, 17.10, 18.3_
-  - [ ] 18.2 Implement queue advancement, loop cancellation, and `on_music_end`
+  - [x] 18.2 Implement queue advancement, loop cancellation, and `on_music_end`
     - On the `ended` event, advance to the next queued track if present, else dispatch
       `on_music_end` via the introspection path. When `queue(name)` is called while the current
       track is looping, cancel the loop so it stops after the current iteration and the queue then
@@ -350,8 +350,11 @@ tests; the constraint is noted rather than assuming a framework exists.
   sound are always available without an upload). User uploads of the same name take precedence.
 - A minimal Web Audio `sounds` loader (`sounds.<name>.play()/stop()/get_length()`) was brought
   forward from Phase 4 into Phase 3 so the Alien sample's `sounds.eep.play()` works end-to-end.
-  The fuller Phase 4 semantics (finite loop counts, per-buffer stop, concurrent-source tracking
-  nuances) remain tracked under task 17.
+  Phase 4 then completed the fuller semantics (finite loop counts, per-name stop, concurrent-source
+  tracking) and bundled a synthesised `ding.wav`.
+- Phase 5 bundles `spook4.mp3` under `resources/music/` (listed in the manifest, so it seeds into
+  the File Manager and stages to the FS) and adds a "spooky music" sample exercising
+  `play`/`play_once`/`stop`/`fadeout`/volume and `on_music_end`.
 
 ## Task Dependency Graph
 

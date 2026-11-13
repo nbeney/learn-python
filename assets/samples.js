@@ -442,4 +442,50 @@ def on_mouse_down(pos):
 pgzrun.go()
 `,
   },
+  {
+    name: "🎮 Pygame Zero: spooky music",
+    code: `# Background music you can control. The spook4 track ships with the editor.
+# Press keys: P play/loop, O play once, S stop, F fade out, +/- volume.
+# Click the game first so it can hear the keyboard.
+import pgzrun
+
+status = "Press P to play the music"
+
+def draw():
+    screen.fill((20, 10, 30))
+    screen.draw.text("🎵 Music controls", (20, 20), fontsize=40, color="violet")
+    screen.draw.text(status, (20, 80), fontsize=26, color="white")
+    screen.draw.text("P play loop   O play once   S stop",
+                     (20, 140), fontsize=22, color="gray")
+    screen.draw.text("F fade out    + louder    - quieter",
+                     (20, 170), fontsize=22, color="gray")
+
+def on_key_down(key):
+    global status
+    if key == keys.P:
+        music.play('spook4')          # loops forever
+        status = "Playing (looping)"
+    elif key == keys.O:
+        music.play_once('spook4')     # plays once, then on_music_end
+        status = "Playing once"
+    elif key == keys.S:
+        music.stop()
+        status = "Stopped"
+    elif key == keys.F:
+        music.fadeout(2.0)            # fade to silence over 2 seconds
+        status = "Fading out..."
+    elif key == keys.EQUALS or key == keys.KP_PLUS:
+        music.set_volume(min(1.0, music.get_volume() + 0.1))
+        status = "Volume: %d%%" % round(music.get_volume() * 100)
+    elif key == keys.MINUS or key == keys.KP_MINUS:
+        music.set_volume(max(0.0, music.get_volume() - 0.1))
+        status = "Volume: %d%%" % round(music.get_volume() * 100)
+
+def on_music_end():
+    global status
+    status = "Music ended"
+
+pgzrun.go()
+`,
+  },
 ];

@@ -2044,9 +2044,158 @@ print(f"🚀 Have an amazing day, {name}! 💖")
       }
     }
     pgzLiveByName.clear();
+    pgzMusicHardStop();            // also silence the music channel
   };
 
   globalThis.jsPgzClearSoundCache = () => { pgzSoundCache.clear(); };
+
+  // ----- Music: a single <audio> channel (Phase 5) -----
+  // Only one track plays at a time. Backed by one reusable <audio> element
+  // streamed from music/<name>.mp3 (also .ogg). A queue lets tracks chain on
+  // `ended`; when the queue is empty and a non-looping track ends, we dispatch
+  // the on_music_end hook. music/ files are streamed (not preloaded).
+  let pgzMusicEl = null;
+  let pgzMusicName = "";          // name of the current track (for is_playing)
+  let pgzMusicQueue = [];         // names queued to play after the current one
+  let pgzMusicLoop = false;       // whether the current track loops forever
+  let pgzMusicVolume = 1.0;       // last volume set by the student (0..1)
+  let pgzMusicFadeTimer = 0;      // interval id for an in-progress fadeout
+  const PGZ_MUSIC_EXTS = ["mp3", "ogg"];
+
+  function pgzMusicElement() {
+    if (!pgzMusicEl) {
+      pgzMusicEl = new Audio();
+      pgzMusicEl.addEventListener("ended", pgzMusicOnEnded);
+    }
+    return pgzMusicEl;
+  }
+
+  // Resolve a music name to a blob: URL from the staged FS, trying extensions.
+  function pgzMusicSrc(name) {
+    for (const ext of PGZ_MUSIC_EXTS) {
+      try {
+        const bytes = pyodide.FS.readFile("music/" + name + "." + ext);
+        const mime = ext === "ogg" ? "audio/ogg" : "audio/mpeg";
+        const blob = new Blob([bytes], { type: mime });
+        return URL.createObjectURL(blob);
+      } catch (_) { /* try next */ }
+    }
+    return null;
+  }
+
+  function pgzClearFade() {
+    if (pgzMusicFadeTimer) { clearInterval(pgzMusicFadeTimer); pgzMusicFadeTimer = 0; }
+  }
+
+  // Revoke the previous blob: URL (if any) before replacing the src.
+  function pgzMusicSetSrc(url) {
+    const el = pgzMusicElement();
+    const old = el.src;
+    el.src = url;
+    if (old && old.startsWith("blob:")) { try { URL.revokeObjectURL(old); } catch (_) {} }
+  }
+
+  function pgzMusicStartTrack(name, loop) {
+    const url = pgzMusicSrc(name);
+    if (!url) throw new Error("No music track found for '" + name + "' in music/");
+    pgzClearFade();
+    const el = pgzMusicElement();
+    pgzMusicSetSrc(url);
+    el.loop = !!loop;
+    el.volume = pgzMusicVolume;
+    pgzMusicName = name;
+    pgzMusicLoop = !!loop;
+    const p = el.play();
+    if (p && p.catch) p.catch(() => { /* autoplay may be blocked until a gesture */ });
+  }
+
+  function pgzMusicOnEnded() {
+    // A looping track never fires `ended`. For a finished one-shot: advance the
+    // queue if non-empty, else dispatch on_music_end.
+    if (pgzMusicQueue.length) {
+      const next = pgzMusicQueue.shift();
+      try { pgzMusicStartTrack(next, false); } catch (_) { pgzMusicName = ""; }
+    } else {
+      pgzMusicName = "";
+      pgzDispatch("on_music_end", {});
+    }
+  }
+
+  // Hard stop used by teardown: stop audio, clear queue/fade, no hook.
+  function pgzMusicHardStop() {
+    pgzClearFade();
+    pgzMusicQueue = [];
+    pgzMusicLoop = false;
+    pgzMusicName = "";
+    if (pgzMusicEl) {
+      try { pgzMusicEl.pause(); } catch (_) {}
+      try { pgzMusicEl.currentTime = 0; } catch (_) {}
+      const old = pgzMusicEl.src;
+      if (old && old.startsWith("blob:")) { try { URL.revokeObjectURL(old); } catch (_) {} }
+      pgzMusicEl.removeAttribute("src");
+    }
+  }
+
+  globalThis.jsPgzMusicPlay = (name) => { pgzMusicStartTrack(String(name), true); };
+  globalThis.jsPgzMusicPlayOnce = (name) => { pgzMusicStartTrack(String(name), false); };
+  globalThis.jsPgzMusicQueue = (name) => {
+    name = String(name);
+    // Queueing while the current track loops cancels the loop so it stops at
+    // the end of the current iteration and the queue then advances.
+    if (pgzMusicEl && !pgzMusicEl.paused && pgzMusicLoop) {
+      pgzMusicEl.loop = false;
+      pgzMusicLoop = false;
+    }
+    if (pgzMusicEl && !pgzMusicEl.paused) {
+      pgzMusicQueue.push(name);              // play after the current track
+    } else {
+      pgzMusicStartTrack(name, false);       // nothing playing: start now
+    }
+  };
+  globalThis.jsPgzMusicStop = () => {
+    pgzClearFade();
+    pgzMusicQueue = [];
+    pgzMusicLoop = false;
+    pgzMusicName = "";
+    if (pgzMusicEl) {
+      try { pgzMusicEl.pause(); } catch (_) {}
+      try { pgzMusicEl.currentTime = 0; } catch (_) {}
+    }
+  };
+  globalThis.jsPgzMusicPause = () => { if (pgzMusicEl) { try { pgzMusicEl.pause(); } catch (_) {} } };
+  globalThis.jsPgzMusicUnpause = () => {
+    if (pgzMusicEl && pgzMusicEl.src) {
+      const p = pgzMusicEl.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+  };
+  globalThis.jsPgzMusicIsPlaying = (name) => {
+    if (!pgzMusicEl || pgzMusicEl.paused) return false;
+    return String(name) === pgzMusicName;
+  };
+  globalThis.jsPgzMusicFadeout = (duration) => {
+    if (!pgzMusicEl || pgzMusicEl.paused) return;
+    pgzClearFade();
+    const steps = 20;
+    const dur = Math.max(0.01, Number(duration) || 0);
+    const start = pgzMusicEl.volume;
+    let i = 0;
+    pgzMusicFadeTimer = setInterval(() => {
+      i += 1;
+      const v = start * (1 - i / steps);
+      if (pgzMusicEl) pgzMusicEl.volume = Math.max(0, v);
+      if (i >= steps) {
+        pgzClearFade();
+        globalThis.jsPgzMusicStop();
+        if (pgzMusicEl) pgzMusicEl.volume = pgzMusicVolume;   // restore for next play
+      }
+    }, (dur * 1000) / steps);
+  };
+  globalThis.jsPgzMusicSetVolume = (v) => {
+    pgzMusicVolume = Math.max(0, Math.min(1, Number(v)));
+    if (pgzMusicEl) pgzMusicEl.volume = pgzMusicVolume;
+  };
+  globalThis.jsPgzMusicGetVolume = () => pgzMusicVolume;
 
   // ----- ptext (screen.draw.text / textbox) -----
   // opts is a plain JS object built on the Python side. Fonts use the system
@@ -2875,7 +3024,11 @@ from js import (jsPgzScreenSize, jsPgzShow, jsPgzReset,
                 jsPgzImageSize, jsPgzBlit, jsPgzDrawActor,
                 jsPgzClearImageCache,
                 jsPgzSoundPlay, jsPgzSoundStop, jsPgzSoundLength,
-                jsPgzClearSoundCache)
+                jsPgzClearSoundCache,
+                jsPgzMusicPlay, jsPgzMusicPlayOnce, jsPgzMusicQueue,
+                jsPgzMusicStop, jsPgzMusicPause, jsPgzMusicUnpause,
+                jsPgzMusicIsPlaying, jsPgzMusicFadeout,
+                jsPgzMusicSetVolume, jsPgzMusicGetVolume)
 try:
     from pyodide.ffi import to_js, create_proxy
 except Exception:  # pragma: no cover - non-Pyodide fallback
@@ -3117,6 +3270,37 @@ class _Sounds:
         _pgz_check_name("sound", name)
         return _Sound(name)
 sounds = _Sounds()
+
+# ----- music (Phase 5): single streamed channel -----
+# One track at a time, backed by a single <audio> element on the JS side.
+# Names are validated like other assets. play() loops forever; play_once()
+# plays once; queue() chains tracks; on_music_end fires when a non-looping
+# track ends with an empty queue.
+class _Music:
+    def play(self, name):
+        _pgz_check_name("music", name)
+        jsPgzMusicPlay(name)
+    def play_once(self, name):
+        _pgz_check_name("music", name)
+        jsPgzMusicPlayOnce(name)
+    def queue(self, name):
+        _pgz_check_name("music", name)
+        jsPgzMusicQueue(name)
+    def stop(self):
+        jsPgzMusicStop()
+    def pause(self):
+        jsPgzMusicPause()
+    def unpause(self):
+        jsPgzMusicUnpause()
+    def is_playing(self, name):
+        return bool(jsPgzMusicIsPlaying(name))
+    def fadeout(self, duration):
+        jsPgzMusicFadeout(float(duration))
+    def set_volume(self, volume):
+        jsPgzMusicSetVolume(float(volume))
+    def get_volume(self):
+        return float(jsPgzMusicGetVolume())
+music = _Music()
 
 # ----- screen -----
 class _Draw:
@@ -3498,7 +3682,7 @@ def _install(g):
     names = {
         "screen": screen, "clock": clock, "Rect": Rect, "ZRect": ZRect,
         "keyboard": keyboard, "keys": keys, "mouse": mouse, "keymods": keymods,
-        "Actor": Actor, "images": images, "sounds": sounds,
+        "Actor": Actor, "images": images, "sounds": sounds, "music": music,
     }
     for k, v in names.items():
         g.setdefault(k, v)
@@ -3596,7 +3780,7 @@ _builtins_mod = _make_module(
     "pgzero.builtins",
     screen=screen, clock=clock, Rect=Rect, ZRect=ZRect,
     keyboard=keyboard, keys=keys, mouse=mouse, keymods=keymods,
-    Actor=Actor, images=images, sounds=sounds,
+    Actor=Actor, images=images, sounds=sounds, music=music,
 )
 _builtins_mod._reset = _reset
 _builtins_mod._install = _install
@@ -3610,6 +3794,7 @@ sys.modules["pgzero.clock"] = _make_module("pgzero.clock", clock=clock, Clock=_C
 sys.modules["pgzero.screen"] = _make_module("pgzero.screen", Screen=_Screen)
 sys.modules["pgzero.actor"] = _make_module("pgzero.actor", Actor=Actor)
 sys.modules["pgzero.loaders"] = _make_module("pgzero.loaders", images=images, sounds=sounds)
+sys.modules["pgzero.music"] = _make_module("pgzero.music", music=music)
 
 _pgzrun_mod = _make_module("pgzrun", go=go)
 sys.modules["pgzrun"] = _pgzrun_mod
